@@ -1,0 +1,57 @@
+---
+# Known-good SHA256 sums for SentinelOne deployment packages.
+#
+# Checked before the tarball is unpacked, because the vendor's download service
+# is unreliable and a truncated package otherwise fails deep inside the deploy,
+# after the host has already been modified.
+#
+# Size is compared first — it is instant and catches the common truncated
+# download without reading 5 GB. The SHA256 is only computed after the size
+# matches.
+#
+# Keys are the exact tarball FILENAME as staged on the target server.
+# Comparison is case-insensitive, so vendor sums can be pasted as published.
+#
+# The `source` field records provenance:
+#   vendor — published by SentinelOne. Proves authenticity AND integrity.
+#   local  — computed from a local copy. Proves the file has not changed since,
+#            but cannot prove the copy was good to begin with.
+#
+# All four entries below are vendor-published sums, each verified against the
+# local copy in installers/ on 2026-07-30.
+#
+# To add an entry:
+#   openssl dgst -sha256 installers/<package>.tar.gz    # any platform, fastest
+#   shasum -a 256 installers/<package>.tar.gz           # macOS
+#   sha256sum installers/<package>.tar.gz               # Linux
+#   stat -f%z installers/<package>.tar.gz               # macOS: size in bytes
+#   stat -c%s installers/<package>.tar.gz               # Linux: size in bytes
+#
+# The upgrade path runs top to bottom:
+#   S-25.3.2 -> O-25.4.4 -> O-25.4.6 -> O-26.1.1
+
+packages:
+
+  SentinelOne_MGMT_S_25_3_2_096.tar.gz:
+    version: "S-25.3.2"
+    source: vendor
+    size: 5264577006
+    sha256: "BB7C3742A063E9AFDB1AE9D7350B86CE5E69A3C1F33CCDAE1A83B67366AEDE55"
+
+  sentinel_mgmt_o_25_4_4_022.tar.gz:
+    version: "O-25.4.4"
+    source: vendor
+    size: 6273585225
+    sha256: "EA99B5B367CBDFB7828C2CDBD0353413E4E29C200C323D7D88ED410E27489D08"
+
+  sentinel_mgmt_o_25_4_6_034.tar.gz:
+    version: "O-25.4.6"
+    source: vendor
+    size: 5538137406
+    sha256: "431BE694FB0402D899E42D8985F67EFAE89C5AA693E41B25F0C015C390E0BE30"
+
+  sentinel_mgmt_o_26_1_1_009.tar.gz:
+    version: "O-26.1.1"
+    source: vendor
+    size: 5918878629
+    sha256: "855B32D3FAF24CCE88542A9BBA5B0181238F99F8B79916A64FFD7464BFB6B157"

@@ -1,0 +1,78 @@
+---
+# Hand off to the vendor playbook.
+#
+# Deliberately NOT passing -e docker_tag: the vendor's
+# validate_upgrade_version.yml fails with UPGRADE_VERSION_MISMATCH when the
+# release prefix changes (s_release -> o_release), which is exactly the
+# S-25.3.2 -> O-25.4.4 hop the docs prescribe. That check only runs
+# "when: docker_tag is defined", so omitting it keeps the supported path
+# working. If you ever need docker_tag, add -e disable_version_check=true.
+
+- name: Build the Postgres flags for this hop
+  ansible.builtin.set_fact:
+    s1_pg_flags: >-
+      {{ '' if s1_pg_action == 'none'
+         else ('-e upgrade_postgres=false -e dump_dir=' ~ s1_dump_dir
+               if s1_pg_action == 'defer'
+               else '-e upgrade_postgres=true -e dump_dir=' ~ s1_dump_dir) }}
+
+# Discovered in 40_bootstrap.yml — see the note in s1_mgmt/tasks/60_deploy.yml.
+- name: Assert the Ansible runtime was resolved
+  ansible.builtin.assert:
+    that:
+      - s1_bin | default('') | length > 0
+      - s1_py | default('') | length > 0
+    fail_msg: >-
+      The vendor Ansible runtime has not been resolved. It is discovered during
+      the bootstrap stage, so run without --tags (or include 'bootstrap'), or
+      set s1_playbook_bin and s1_python_interpreter explicitly.
+
+- name: Run the vendor upgrade
+  ansible.builtin.command: >-
+    {{ s1_bin | quote }} deploy_mgmt.yml
+    -i hosts
+    -e ansible_python_interpreter={{ s1_py | quote }}
+    {{ s1_pg_flags }}
+  args:
+    chdir: "{{ s1_docker_ansible }}"
+  environment:
+    HOME: /root
+    ANSIBLE_FORCE_COLOR: "0"
+  register: s1_up_deploy
+  changed_when: true
+  failed_when: >-
+    s1_up_deploy.rc != 0 or
+    (s1_up_deploy.stdout is search('failed=[1-9]'))
+  async: "{{ s1_upgrade_timeout }}"
+  poll: 30
+
+- name: Show the vendor PLAY RECAP
+  ansible.builtin.debug:
+    msg: "{{ s1_up_deploy.stdout_lines[-15:] | default([]) }}"
+
+# The upgrade does not re-supply secrets, but group_vars may still hold them
+# and the vendor playbook reads the config.yml on disk — mask the same set the
+# install path does before the log is saved.
+- name: Save the full upgrade log to the version directory
+  vars:
+    s1_log_secrets: >-
+      {{ [s1_admin_password | default(''),
+          s1_cloud_token | default(''),
+          s1_custom_aes_key | default('')] | select() | list }}
+    s1_log_raw: |
+      upgrade {{ s1_current_version }} -> {{ s1_version_resolved }}
+      postgres action: {{ s1_pg_action }}
+      flags: {{ s1_pg_flags }}
+
+      === stdout ===
+      {{ s1_up_deploy.stdout | default('') }}
+
+      === stderr ===
+      {{ s1_up_deploy.stderr | default('') }}
+  ansible.builtin.copy:
+    content: >-
+      {{ s1_log_raw
+         | regex_replace(s1_log_secrets | map('regex_escape') | join('|'), '***MASKED***')
+         if s1_log_secrets | length > 0 else s1_log_raw }}
+    dest: "{{ s1_dest }}/upgrade-{{ ansible_date_time.iso8601_basic_short | default('run') }}.log"
+    mode: "0640"

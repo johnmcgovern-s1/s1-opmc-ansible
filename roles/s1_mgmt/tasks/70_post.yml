@@ -1,0 +1,49 @@
+---
+# Post-install steps the docs require after deploy_mgmt.yml completes.
+
+- name: Read settings.ini
+  ansible.builtin.slurp:
+    src: /s1/conf/settings.ini
+  register: s1_settings_raw
+  failed_when: false
+
+# The install article says to verify [insights] mgmt_hostname = api:33014, but
+# S-25.3.2 ships nginx:33443 in its own conf/settings.ini.defaults. The shipped
+# default is left alone — changing it blind risks breaking report generation.
+# Reported, not corrected.
+- name: Report the insights mgmt_hostname
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'OK: [insights] mgmt_hostname = api:33014 (matches the install doc)'
+         if (s1_settings_raw.content | b64decode) is search('mgmt_hostname\s*=\s*api:33014')
+         else 'NOTE: [insights] mgmt_hostname is the package default, not the
+               api:33014 the install doc calls for. Recent packages ship
+               nginx:33443. Left as shipped — change it only if Support says to.' }}
+  when: s1_settings_raw.content is defined
+
+# Required from S-24.2.5.173 onward; both current packages are past that build.
+- name: Set force_legacy_token in the management_configuration section
+  community.general.ini_file:
+    path: /s1/conf/settings.ini
+    section: management_configuration
+    option: force_legacy_token
+    value: "True"
+    mode: "0640"
+    backup: true
+  register: s1_flt
+  when:
+    - s1_set_force_legacy_token | bool
+    - s1_settings_raw.content is defined
+
+- name: Restart the application containers after changing settings.ini
+  ansible.builtin.command: docker restart api
+  changed_when: true
+  failed_when: false
+  when: s1_flt is defined and s1_flt is changed
+
+- name: Note that no_proxy configuration was skipped
+  ansible.builtin.debug:
+    msg: >-
+      Air-gapped deployment: skipping the /etc/environment no_proxy block. It is
+      only needed when the console reaches the internet through a proxy.
+  when: s1_cloud_address | length == 0

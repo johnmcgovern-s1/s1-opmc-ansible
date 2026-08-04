@@ -1,0 +1,46 @@
+---
+# Bring-your-own certificates. The key must be passwordless — the vendor
+# playbook cannot prompt for a passphrase.
+
+- name: Ensure the certificate directory exists
+  ansible.builtin.file:
+    path: "{{ s1_cert_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Copy the private key
+  ansible.builtin.copy:
+    src: "{{ s1_key_src }}"
+    dest: "{{ s1_cert_dir }}/{{ s1_key_src | basename }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Copy the certificate
+  ansible.builtin.copy:
+    src: "{{ s1_pem_src }}"
+    dest: "{{ s1_cert_dir }}/{{ s1_pem_src | basename }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Detect an encrypted private key
+  ansible.builtin.command: "grep -l ENCRYPTED {{ (s1_cert_dir ~ '/' ~ (s1_key_src | basename)) | quote }}"
+  register: s1_key_enc
+  changed_when: false
+  failed_when: false
+
+- name: Fail when the private key is passphrase-protected
+  ansible.builtin.fail:
+    msg: >-
+      {{ s1_key_src }} is passphrase-protected. The console cannot use it.
+      Strip the passphrase: openssl rsa -in enc.key -out plain.key
+  when: s1_key_enc.rc == 0
+
+- name: Record the on-target certificate paths for config.yml
+  ansible.builtin.set_fact:
+    s1_key_path: "{{ s1_cert_dir }}/{{ s1_key_src | basename }}"
+    s1_pem_path: "{{ s1_cert_dir }}/{{ s1_pem_src | basename }}"

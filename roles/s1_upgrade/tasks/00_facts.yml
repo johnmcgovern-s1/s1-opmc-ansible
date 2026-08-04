@@ -1,0 +1,128 @@
+---
+# Reuse the install role's version/path/runtime resolution, then add the
+# upgrade-specific facts on top.
+- name: Resolve version, paths and runtime
+  ansible.builtin.import_role:
+    name: s1_mgmt
+    tasks_from: 00_facts
+
+# --- Currently installed version -------------------------------------------
+
+- name: Read the installed version file
+  ansible.builtin.slurp:
+    src: /s1/version.json
+  register: s1_installed_raw
+  failed_when: false
+
+- name: Fail when nothing is installed
+  ansible.builtin.fail:
+    msg: >-
+      /s1/version.json not found — no console is installed on this host.
+      Use install.yml for a clean installation.
+  when: s1_installed_raw.content is not defined
+
+- name: Determine the currently installed version
+  ansible.builtin.set_fact:
+    s1_current_version: >-
+      {{ (s1_installed_raw.content | b64decode | from_json).release | default('') }}
+    s1_current_tag: >-
+      {{ (s1_installed_raw.content | b64decode | from_json).management_tag | default('') }}
+
+- name: Fail when the installed version cannot be read
+  ansible.builtin.fail:
+    msg: >-
+      Could not read 'release' from /s1/version.json.
+      Contents: {{ s1_installed_raw.content | b64decode }}
+  when: s1_current_version | length == 0
+
+# --- Chain validation -------------------------------------------------------
+
+- name: Fail when the installed version is not a known upgrade source
+  ansible.builtin.fail:
+    msg: |
+      Installed version {{ s1_current_version }} is not in the supported
+      upgrade path. Known versions, in order:
+        {{ s1_upgrade_order | join(' -> ') }}
+      Anything earlier must be stepped up to {{ s1_upgrade_order | first }}
+      using the vendor procedure first.
+  when:
+    - s1_current_version not in s1_upgrade_order
+    - not s1_skip_chain_check | bool
+
+- name: Locate the installed version in the path and derive the next hop
+  ansible.builtin.set_fact:
+    s1_current_index: "{{ s1_upgrade_order.index(s1_current_version) }}"
+    s1_remaining_path: "{{ s1_upgrade_order[s1_upgrade_order.index(s1_current_version):] }}"
+  when: s1_current_version in s1_upgrade_order
+
+- name: Determine the legal next hop
+  ansible.builtin.set_fact:
+    s1_expected_target: >-
+      {{ s1_upgrade_order[s1_current_index | int + 1]
+         if (s1_current_index | int + 1) < (s1_upgrade_order | length) else '' }}
+  when: s1_current_index is defined
+
+- name: Report that the console is already at the latest supported version
+  ansible.builtin.fail:
+    msg: >-
+      {{ s1_current_version }} is the last entry in the upgrade path — there is
+      nothing newer to upgrade to. Add the new release to s1_upgrade_order once
+      the vendor publishes it.
+  when:
+    - s1_current_index is defined
+    - s1_expected_target | length == 0
+    - not s1_skip_chain_check | bool
+
+- name: Fail when the staged package is not the next hop
+  ansible.builtin.fail:
+    msg: |
+      Illegal upgrade hop — versions must not be skipped.
+        installed      : {{ s1_current_version }}
+        staged package : {{ s1_version_resolved }}
+        expected next  : {{ s1_expected_target }}
+      Stage the {{ s1_expected_target }} package and re-run. Set
+      s1_skip_chain_check=true only for a path Support has approved.
+  when:
+    - not s1_skip_chain_check | bool
+    - s1_version_resolved != s1_expected_target
+
+# --- Postgres state ---------------------------------------------------------
+
+- name: Inspect the running Postgres container image
+  ansible.builtin.command: >-
+    docker inspect --format {{ '{{' }}.Config.Image{{ '}}' }} postgres
+  register: s1_pg_image
+  changed_when: false
+  failed_when: false
+
+- name: Derive the Postgres image tag
+  ansible.builtin.set_fact:
+    s1_pg_tag: "{{ (s1_pg_image.stdout | default('')).split(':') | last | trim }}"
+
+- name: Determine the Postgres major version
+  ansible.builtin.set_fact:
+    s1_pg_major: >-
+      {{ s1_postgres_version_override if s1_postgres_version_override | length > 0
+         else (s1_pg_tag | regex_search('^([0-9]+)', '\1') | first | default('unknown')) }}
+    s1_pg_bullseye: "{{ 'bullseye' in s1_pg_tag }}"
+
+# Per the upgrade doc:
+#   pg 15+          -> no extra flags
+#   pg 11-bullseye  -> upgrade_postgres=false for the O-25.4.4 hop, true after
+#   pg 11 (plain)   -> upgrade_postgres=true
+- name: Decide the Postgres upgrade flags for this hop
+  ansible.builtin.set_fact:
+    s1_pg_action: >-
+      {{ 'none' if (s1_pg_major != 'unknown' and s1_pg_major | int >= 15)
+         else ('defer' if (s1_pg_bullseye | bool and s1_version_resolved == 'O-25.4.4')
+               else 'upgrade') }}
+
+- name: Report upgrade parameters
+  ansible.builtin.debug:
+    msg:
+      - "installed      : {{ s1_current_version }} ({{ s1_current_tag }})"
+      - "upgrading to   : {{ s1_version_resolved }}"
+      - "remaining path : {{ s1_remaining_path | default([s1_current_version]) | join(' -> ') }}"
+      - "postgres       : tag={{ s1_pg_tag | default('unknown') }} major={{ s1_pg_major }} bullseye={{ s1_pg_bullseye }}"
+      - "pg action      : {{ s1_pg_action }} ({{ 'no flags' if s1_pg_action == 'none' else ('upgrade_postgres=false + dump_dir' if s1_pg_action == 'defer' else 'upgrade_postgres=true + dump_dir') }})"
+      - "interpreter    : {{ s1_py if s1_py | length > 0 else '(discovered after bootstrap)' }}"

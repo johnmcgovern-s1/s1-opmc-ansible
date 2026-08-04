@@ -1,0 +1,22 @@
+# Copy to inventory.ini and edit. inventory.ini is gitignored so your real
+# hostnames and usernames are never committed.
+#
+#   cp inventory.ini.example inventory.ini
+
+[s1_mgmt]
+console.example.com
+
+[s1_mgmt:vars]
+# The account you SSH in as. This also determines which home directory the
+# deployment package is unpacked into (~/<VERSION>/), unless s1_install_base
+# is set.
+ansible_user=CHANGEME
+
+ansible_become=true
+ansible_become_method=sudo
+
+# ansible_python_interpreter is deliberately NOT set. The first play in
+# install.yml / upgrade.yml probes the target and installs python3.11 if needed
+# (RHEL 8.10 ships only Python 3.6, which modern ansible-core cannot manage),
+# then pins whatever it found. Set it here only to override that.
+#ansible_python_interpreter=/usr/bin/python3.11

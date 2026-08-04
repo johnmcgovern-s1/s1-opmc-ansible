@@ -1,0 +1,55 @@
+---
+# Steps the upgrade doc requires between staging and running the playbook.
+
+- name: Remove a stale build directory from a previous run
+  ansible.builtin.file:
+    path: /tmp/sentinel_mgmt_deploy
+    state: absent
+
+# The doc gives this [metrics] block verbatim.
+- name: Set the metrics section in settings.ini
+  community.general.ini_file:
+    path: /s1/conf/settings.ini
+    section: metrics
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    mode: "0640"
+    backup: true
+  loop:
+    - { option: enabled, value: "False" }
+    - { option: statsd_host, value: "datadog" }
+    - { option: statsd_port, value: "8125" }
+    - { option: statsd_namespace, value: "mgmt-backend" }
+  loop_control:
+    label: "{{ item.option }}"
+
+# S and O releases default this to True. It must be False for EDG or
+# hybrid-EDR, and an earlier upgrade may have overwritten it — so the default
+# here is to leave whatever is already set alone.
+- name: Set force_legacy_token
+  community.general.ini_file:
+    path: /s1/conf/settings.ini
+    section: management_configuration
+    option: force_legacy_token
+    value: "{{ 'True' if s1_force_legacy_token | bool else 'False' }}"
+    mode: "0640"
+    backup: true
+  when: s1_force_legacy_token is not none
+
+- name: Note that force_legacy_token was left untouched
+  ansible.builtin.debug:
+    msg: >-
+      force_legacy_token left as-is. S/O releases default it to True. If this
+      console uses EDG or hybrid-EDR it must be False — set
+      s1_force_legacy_token=false to enforce that.
+  when: s1_force_legacy_token is none
+
+- name: Allow private IPs as SMTP servers
+  community.general.ini_file:
+    path: /s1/conf/settings.ini
+    section: smtp
+    option: whitelisted_host_ips
+    value: "{{ s1_smtp_whitelisted_host_ips }}"
+    mode: "0640"
+    backup: true
+  when: s1_smtp_whitelisted_host_ips | length > 0

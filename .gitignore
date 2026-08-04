@@ -1,0 +1,66 @@
+# SentinelOne deployment packages — multi-GB, never commit these
+installers/
+*.tar.gz
+*.tgz
+
+# Vendor documentation from the login-gated community portal.
+# Kept locally as a working reference; not for redistribution.
+docs-*.txt
+
+# Internal register of vendor doc/package defects — local working notes,
+# not part of the published project.
+docs-feedback/
+
+# Ansible Vault / secrets
+vault-password
+.vault_pass
+group_vars/*/vault.yml
+*.vault
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Ansible runtime
+*.retry
+.ansible/
+fact_cache/
+
+# Site-specific config — real hostnames, usernames, emails and paths.
+# Committed as .example files with placeholders; copy and edit locally.
+inventory.ini
+group_vars/all/main.yml
+inventory.local.ini
+host_vars/*.local.yml
+
+# Claude Code
+.claude/
+CLAUDE.local.md
+
+# Local security-remediation tracking — not part of the published project
+security-dashboard/
+
+# macOS artifacts
+.DS_Store
+.DS_Store?
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.fseventsd
+.VolumeIcon.icns
+.DocumentRevisions-V100
+.apdisk
+Icon?
+
+# Editor noise
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

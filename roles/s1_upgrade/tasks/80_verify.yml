@@ -1,0 +1,53 @@
+---
+- name: List all containers
+  ansible.builtin.command: docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}'
+  register: s1_up_ps
+  changed_when: false
+
+- name: Show container status
+  ansible.builtin.debug:
+    var: s1_up_ps.stdout_lines
+
+# Exclude the containers the vendor documents as expected-broken, otherwise
+# every successful upgrade reports false failures.
+- name: Identify unexpectedly stopped containers
+  ansible.builtin.set_fact:
+    s1_up_down: >-
+      {{ s1_up_ps.stdout_lines
+         | reject('search', '\tUp')
+         | reject('search', '^(' ~ (s1_known_unhealthy_containers | join('|')) ~ ')\t')
+         | list }}
+
+- name: Report containers that are not running
+  ansible.builtin.debug:
+    msg: |
+      WARNING: these containers are not Up and are not on the expected-broken list:
+      {{ s1_up_down | join('\n') }}
+      Try: systemctl restart docker
+  when: s1_up_down | length > 0
+
+# validate_certs is off deliberately: this is a liveness probe run from the
+# console host itself, where s1_accessible_url may not resolve to a name the
+# certificate covers. It proves the service is up, not the TLS chain.
+- name: Check the console responds over HTTPS
+  ansible.builtin.uri:
+    url: "{{ s1_accessible_url }}"
+    validate_certs: false
+    status_code: [200, 302, 301]
+    timeout: 30
+  register: s1_up_http
+  retries: 20
+  delay: 15
+  until: s1_up_http is succeeded
+  failed_when: false
+  when: s1_accessible_url | length > 0
+
+- name: Final report
+  ansible.builtin.debug:
+    msg:
+      - "upgraded   : {{ s1_current_version }} -> {{ s1_version_resolved }}"
+      - "postgres   : {{ s1_pg_action }}{{ ' (dump dir ' ~ s1_dump_dir ~ ')' if s1_pg_action != 'none' else '' }}"
+      - "containers : {{ s1_up_ps.stdout_lines | length }} total, {{ s1_up_down | length }} unexpectedly down"
+      - "console    : {{ s1_up_http.status | default('not checked') }}"
+      - "next hop   : {{ s1_upgrade_order[s1_upgrade_order.index(s1_version_resolved) + 1] if (s1_version_resolved in s1_upgrade_order and s1_upgrade_order.index(s1_version_resolved) + 1 < s1_upgrade_order | length) else 'none — latest supported version' }}"
+      - "reminder   : verify Help > About in the console (SHIFT+F5 for a hard refresh)"

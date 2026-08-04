@@ -1,0 +1,27 @@
+---
+- import_tasks: 00_facts.yml
+  tags: [always]
+
+- import_tasks: 10_preflight.yml
+  tags: [preflight]
+
+- import_tasks: 20_stage.yml
+  tags: [stage]
+
+- import_tasks: 30_certs.yml
+  tags: [certs]
+
+- import_tasks: 40_bootstrap.yml
+  tags: [bootstrap]
+
+- import_tasks: 50_config.yml
+  tags: [config]
+
+- import_tasks: 60_deploy.yml
+  tags: [deploy]
+
+- import_tasks: 70_post.yml
+  tags: [post]
+
+- import_tasks: 80_verify.yml
+  tags: [verify]

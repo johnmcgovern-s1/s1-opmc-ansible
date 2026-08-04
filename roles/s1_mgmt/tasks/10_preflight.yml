@@ -1,0 +1,272 @@
+---
+# Fail fast, before anything on the host is modified.
+
+- name: Assert the OS is Red Hat Enterprise Linux
+  ansible.builtin.assert:
+    that: ansible_distribution == 'RedHat'
+    fail_msg: >-
+      This playbook targets RHEL. Found {{ ansible_distribution }}
+      {{ ansible_distribution_version }}. Set s1_allow_unsupported_os=true to override.
+  when: not s1_allow_unsupported_os | bool
+
+- name: Assert the RHEL major version is supported by the vendor installer
+  ansible.builtin.assert:
+    that: ansible_distribution_major_version in ['8', '9']
+    fail_msg: >-
+      offline_installation.sh supports RHEL 7, 8 and 9 only.
+      Found major version {{ ansible_distribution_major_version }}.
+  when: not s1_allow_unsupported_os | bool
+
+- name: Assert the architecture is x86_64
+  ansible.builtin.assert:
+    that: ansible_architecture == 'x86_64'
+    fail_msg: "The vendor ships x86_64 RPMs and images only. Found {{ ansible_architecture }}."
+
+# --- Identity: the installer hard-codes UID/GID 847 and the name s1 ---------
+
+- name: Check whether UID 847 is already taken
+  ansible.builtin.command: getent passwd 847
+  register: s1_uid_check
+  changed_when: false
+  failed_when: false
+
+- name: Check whether GID 847 is already taken
+  ansible.builtin.command: getent group 847
+  register: s1_gid_check
+  changed_when: false
+  failed_when: false
+
+- name: Check for a pre-existing s1 user
+  ansible.builtin.command: getent passwd s1
+  register: s1_user_check
+  changed_when: false
+  failed_when: false
+
+- name: Check for a pre-existing s1 group
+  ansible.builtin.command: getent group s1
+  register: s1_group_check
+  changed_when: false
+  failed_when: false
+
+- name: Assert UID/GID 847 and the name s1 are free
+  ansible.builtin.assert:
+    that:
+      - s1_uid_check.rc != 0 or 's1:' in s1_uid_check.stdout
+      - s1_gid_check.rc != 0 or 's1:' in s1_gid_check.stdout
+      - s1_user_check.rc != 0 or ':847:' in s1_user_check.stdout
+      - s1_group_check.rc != 0 or ':847:' in s1_group_check.stdout
+    fail_msg: |
+      The installer creates user/group 's1' with UID/GID 847 and cannot use
+      other values. Conflicting entries found:
+        uid 847 : {{ s1_uid_check.stdout | default('free') }}
+        gid 847 : {{ s1_gid_check.stdout | default('free') }}
+        user s1 : {{ s1_user_check.stdout | default('absent') }}
+        group s1: {{ s1_group_check.stdout | default('absent') }}
+    success_msg: "UID/GID 847 and the name s1 are available (or already ours)."
+
+# --- Memory and CPU ---------------------------------------------------------
+# The console runs 20+ containers. Under-provisioned hosts do not fail cleanly:
+# the vendor deploy gets a long way in, then dies with
+# "OSError: [Errno 12] Cannot allocate memory" and can wedge the box badly
+# enough that sshd cannot fork. Catch it up front.
+#
+# Authoritative figures live in the vendor's "Self-hosted (on-premises)
+# installation prerequisites and preparation" article; adjust these to match.
+
+- name: Assert the host has enough RAM
+  ansible.builtin.assert:
+    that: (ansible_memtotal_mb | int) >= (s1_min_ram_gb | int * 1024 * 0.95)
+    fail_msg: |
+      Only {{ (ansible_memtotal_mb | int / 1024) | round(1) }} GB RAM detected;
+      {{ s1_min_ram_gb }} GB is the hard floor and {{ s1_rec_ram_gb }} GB is
+      recommended.
+
+      An under-provisioned host does not fail cleanly — the vendor deploy runs
+      for 20+ minutes, dies on "Cannot allocate memory", and can leave the box
+      unreachable.
+
+      Raise the VM's memory, then re-run. Override with
+      -e s1_min_ram_gb=<n> if the vendor prerequisites say otherwise.
+    success_msg: >-
+      RAM: {{ (ansible_memtotal_mb | int / 1024) | round(1) }} GB
+  when: s1_check_resources | bool
+
+- name: Warn when RAM is below the recommended figure
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ (ansible_memtotal_mb | int / 1024) | round(1) }} GB RAM is
+      above the hard floor but below the {{ s1_rec_ram_gb }} GB recommendation.
+      Expect pressure once all containers are running.
+  when:
+    - s1_check_resources | bool
+    - (ansible_memtotal_mb | int) < (s1_rec_ram_gb | int * 1024 * 0.95)
+
+- name: Warn when vCPU count is low
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ ansible_processor_vcpus }} vCPUs detected,
+      {{ s1_rec_vcpus }} recommended.
+  when:
+    - s1_check_resources | bool
+    - (ansible_processor_vcpus | int) < (s1_rec_vcpus | int)
+
+# --- CPU features -----------------------------------------------------------
+# O-prefix packages ship MongoDB 5.0+, which requires AVX. Without it the mongo
+# container dies on an illegal instruction and restart-loops, and the vendor
+# playbook only discovers this ~7 minutes in, at "Wait for mongo to be
+# available". S-prefix ships MongoDB 4.4, which has no such requirement.
+
+- name: Check for AVX support
+  ansible.builtin.command: grep -qw avx /proc/cpuinfo
+  register: s1_avx
+  changed_when: false
+  failed_when: false
+
+- name: Fail when AVX is missing and the package needs MongoDB 5.0+
+  ansible.builtin.fail:
+    msg: |
+      This CPU does not support AVX, but {{ s1_version_resolved }} ships
+      MongoDB 5.0+, which requires it. The mongo container will crash-loop and
+      the deploy will fail at "Wait for mongo to be available".
+
+      CPU: {{ ansible_processor[2] | default(ansible_processor[0] | default('unknown')) }}
+
+      On Proxmox this is the default kvm64 model masking AVX. Shut the VM down
+      and set Hardware > Processors > Type to 'host' (or 'x86-64-v3' if you
+      need migration portability), then boot and re-run.
+
+      Verify with: grep -w avx /proc/cpuinfo
+
+      Override with -e s1_require_avx=false only if you know the package ships
+      MongoDB 4.4 or earlier.
+  when:
+    - s1_require_avx | bool
+    - s1_prefix == 'O'
+    - s1_avx.rc != 0
+
+- name: Warn when AVX is missing on an S-prefix package
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: no AVX on this CPU. {{ s1_version_resolved }} ships MongoDB 4.4,
+      which does not require it, so this install should work — but any upgrade
+      to an O-prefix release will need AVX.
+  when:
+    - s1_prefix == 'S'
+    - s1_avx.rc != 0
+
+# --- Inputs ----------------------------------------------------------------
+
+- name: Assert the deployment package is present on the target
+  ansible.builtin.stat:
+    path: "{{ s1_package_path }}"
+  register: s1_pkg
+
+- name: Fail when the package is missing
+  ansible.builtin.fail:
+    msg: >-
+      Deployment package not found at {{ s1_package_path }} on {{ inventory_hostname }}.
+      Copy it to the server first (it is multi-GB; scp/rsync it out of band).
+  when: not s1_pkg.stat.exists
+
+- name: Assert the required console settings are provided
+  ansible.builtin.assert:
+    that:
+      - s1_accessible_url | length > 0
+      - s1_admin_email | length > 0
+      - s1_admin_password | length >= 10
+    fail_msg: >-
+      s1_accessible_url, s1_admin_email and a 10+ character s1_admin_password
+      are required. The vendor playbook rejects empty or default passwords.
+
+- name: Assert the admin password avoids characters the console rejects
+  ansible.builtin.assert:
+    that:
+      - "'\"' not in s1_admin_password"
+      - "\"'\" not in s1_admin_password"
+      - "' ' not in s1_admin_password"
+    fail_msg: "admin_password may not contain single quotes, double quotes or whitespace."
+
+- name: Assert the certificate and key exist on the control node
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  delegate_to: localhost
+  become: false
+  register: s1_cert_stat
+  loop:
+    - "{{ s1_key_src }}"
+    - "{{ s1_pem_src }}"
+
+- name: Fail when a certificate file is missing
+  ansible.builtin.fail:
+    msg: "Certificate file not found on the control node: {{ item.item }}"
+  when: not item.stat.exists
+  loop: "{{ s1_cert_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# --- Storage (advisory unless s1_storage_fail_hard) -------------------------
+
+- name: Ensure mount_dir exists
+  ansible.builtin.file:
+    path: "{{ s1_mount_dir }}"
+    state: directory
+    mode: "0755"
+  when: s1_mount_dir | length > 0
+
+- name: Measure free space
+  ansible.builtin.command: "df -BG --output=avail,target {{ item | quote }}"
+  register: s1_df
+  changed_when: false
+  failed_when: false
+  loop:
+    - "{{ s1_base }}"
+    - "{{ s1_mount_dir | default('/', true) }}"
+  when: s1_verify_storage | bool
+
+- name: Evaluate free space
+  ansible.builtin.set_fact:
+    s1_space_warnings: >-
+      {{ s1_space_warnings | default([]) +
+         ([ item.item ~ ' has ' ~ (item.stdout_lines[1].split()[0]) ~ ' free' ]
+          if (item.stdout_lines | default([]) | length > 1
+              and (item.stdout_lines[1].split()[0] | regex_replace('G$','') | int)
+                  < (s1_min_free_gb_install if item.item == s1_base else s1_min_free_gb_data))
+          else []) }}
+  loop: "{{ s1_df.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: s1_verify_storage | bool
+
+- name: Warn about low free space
+  ansible.builtin.debug:
+    msg: |
+      LOW DISK SPACE (advisory):
+      {{ s1_space_warnings | join('\n') }}
+      Wanted >= {{ s1_min_free_gb_install }}G on {{ s1_base }} for the extracted
+      package and >= {{ s1_min_free_gb_data }}G on {{ s1_mount_dir }} for data.
+  when:
+    - s1_verify_storage | bool
+    - s1_space_warnings | default([]) | length > 0
+
+- name: Fail on low free space when configured to do so
+  ansible.builtin.fail:
+    msg: "Insufficient disk space: {{ s1_space_warnings | join('; ') }}"
+  when:
+    - s1_verify_storage | bool
+    - s1_storage_fail_hard | bool
+    - s1_space_warnings | default([]) | length > 0
+
+# --- Firewalling: iptables must not be disabled -----------------------------
+
+- name: Check that iptables is present (Docker relies on it for NAT)
+  ansible.builtin.command: iptables -L -n
+  register: s1_iptables
+  changed_when: false
+  failed_when: false
+
+- name: Warn when iptables is unavailable
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: 'iptables -L' failed. Docker configures iptables NAT rules and the
+      console breaks if iptables is disabled. Output: {{ s1_iptables.stderr | default('') }}
+  when: s1_iptables.rc != 0

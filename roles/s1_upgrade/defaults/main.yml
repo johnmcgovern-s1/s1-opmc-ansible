@@ -1,0 +1,72 @@
+---
+# ============================================================================
+# Upgrade path. One hop per run — the vendor forbids skipping versions.
+# ============================================================================
+
+# Ordered, from the vendor's upgrade path table. Each entry upgrades to the
+# next one; there is no legal way to skip an entry. Append new releases here —
+# that is the only change a new version needs.
+s1_upgrade_order:
+  - "S-25.3.2"
+  - "O-25.4.4"
+  - "O-25.4.6"
+  - "O-26.1.1"
+
+# ============================================================================
+# Safety
+# ============================================================================
+
+# Blocks the run until you confirm a snapshot/backup exists. Recovery from a
+# failed upgrade is "revert to your snapshot", so this is deliberately opt-in.
+s1_snapshot_confirmed: false
+
+# Bypasses the chain check. Only for a path SentinelOne Support has blessed.
+s1_skip_chain_check: false
+
+# ============================================================================
+# Data locations
+# ============================================================================
+# On upgrade, mount_dir is left EMPTY and postgres_dir / mongo_dir are set
+# explicitly, so the deploy points at where the data already lives instead of
+# re-deriving paths. Leave these empty to auto-detect /data/* then /*.
+
+s1_postgres_dir: ""
+s1_mongo_dir: ""
+
+# When the existing layout is derivable (<parent>/postgres + <parent>/mongo),
+# mount_dir is set to <parent> so uploads, dockers and logs keep their install
+# paths. Set true to always use the vendor doc's empty-mount_dir form instead,
+# which moves upload_dir to /uploads and blanks log_dir.
+s1_force_empty_mount_dir: false
+
+# Scratch space for the Postgres 11 -> 15 dump/restore. Needs free space equal
+# to 100% of current Postgres usage. Only used when a pg upgrade is required.
+s1_dump_dir: /tmp/backup/postgres
+
+# Override the detected Postgres major version (11 / 15) if detection fails.
+s1_postgres_version_override: ""
+
+# ============================================================================
+# Behaviour
+# ============================================================================
+
+# force_legacy_token is True by default in S/O releases. Set to false if you
+# use EDG or hybrid-EDR — an earlier upgrade may have overwritten it.
+# null (default) leaves the existing value untouched.
+s1_force_legacy_token: null
+
+# The vendor documents these as expected-broken after upgrade and recommends
+# stopping them. They are also excluded from the container health check.
+s1_stop_known_unhealthy: true
+s1_known_unhealthy_containers:
+  - incoming-command-processor
+  - tags-synchronizer
+  - mgmt-entities-uploader
+  - mgmt-entities-cdc
+  - ranger-fingerprint-consumer
+
+# Comma-separated private IPs to allow as SMTP servers (S-25.2.4+).
+# Empty leaves the existing setting alone.
+s1_smtp_whitelisted_host_ips: ""
+
+s1_upgrade_timeout: 7200

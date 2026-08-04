@@ -1,0 +1,153 @@
+---
+# The tarballs extract FLAT (no top-level directory), so extracting into
+# ~/S-25.3.2/ yields ~/S-25.3.2/docker_ansible/... exactly as the docs expect.
+# Old version directories are deliberately left alone.
+
+# --- Integrity check --------------------------------------------------------
+# The vendor's download service truncates files often enough to be worth
+# catching here. A corrupt tarball otherwise fails deep inside the deploy,
+# after the host has already been modified.
+
+- name: Check whether the package is already unpacked
+  ansible.builtin.stat:
+    path: "{{ s1_docker_ansible }}/deploy_mgmt.yml"
+  register: s1_already_unpacked
+
+- name: Look for the checksum sidecar
+  ansible.builtin.stat:
+    path: "{{ s1_checksums_file }}"
+  delegate_to: localhost
+  become: false
+  register: s1_sums_stat
+
+- name: Load the checksum sidecar
+  ansible.builtin.include_vars:
+    file: "{{ s1_checksums_file }}"
+    name: s1_sums
+  when: s1_sums_stat.stat.exists
+
+- name: Resolve the expected checksum for this package
+  ansible.builtin.set_fact:
+    s1_pkg_name: "{{ s1_package_path | basename }}"
+    s1_pkg_expected: >-
+      {{ (s1_sums.packages | default({}))[s1_package_path | basename] | default({}) }}
+
+- name: Fail when the package is unknown and checksums are mandatory
+  ansible.builtin.fail:
+    msg: |
+      No checksum recorded for {{ s1_pkg_name }} in {{ s1_checksums_file }}
+      and s1_require_checksum is true.
+      Add an entry, or re-run with -e s1_require_checksum=false.
+  when:
+    - s1_require_checksum | bool
+    - s1_pkg_expected.sha256 is not defined
+
+- name: Warn when the package has no recorded checksum
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: no checksum recorded for {{ s1_pkg_name }} — integrity NOT
+      verified. Add it to {{ s1_checksums_file }} to catch a bad download.
+  when: s1_pkg_expected.sha256 is not defined
+
+# Size is instant and catches the common truncated-download case without
+# reading 5GB.
+- name: Stat the package
+  ansible.builtin.stat:
+    path: "{{ s1_package_path }}"
+  register: s1_pkg_stat
+  when: s1_pkg_expected.sha256 is defined
+
+- name: Fail on size mismatch
+  ansible.builtin.fail:
+    msg: |
+      SIZE MISMATCH — {{ s1_pkg_name }} is not the expected package.
+        expected : {{ s1_pkg_expected.size }} bytes
+        actual   : {{ s1_pkg_stat.stat.size }} bytes ({{ s1_pkg_expected.size | int - s1_pkg_stat.stat.size | int }} short)
+      This is almost always a truncated download. Re-download and re-run.
+  when:
+    - s1_pkg_expected.size is defined
+    - s1_pkg_stat.stat.size != s1_pkg_expected.size
+
+- name: Verify the SHA256 of the package (reads the whole file, ~1 min for 5GB)
+  ansible.builtin.stat:
+    path: "{{ s1_package_path }}"
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: s1_pkg_sum
+  when:
+    - s1_pkg_expected.sha256 is defined
+    - not s1_already_unpacked.stat.exists
+
+- name: Fail on checksum mismatch
+  ansible.builtin.fail:
+    msg: |
+      CHECKSUM MISMATCH — {{ s1_pkg_name }} is corrupt or not the expected build.
+        expected : {{ s1_pkg_expected.sha256 | lower }}
+        actual   : {{ s1_pkg_sum.stat.checksum | lower }}
+      Do NOT proceed. Re-download the package and re-run.
+  when:
+    - s1_pkg_sum.stat.checksum is defined
+    # Case-insensitive: vendor-published sums are often uppercase, while
+    # stat returns lowercase.
+    - s1_pkg_sum.stat.checksum | lower != s1_pkg_expected.sha256 | lower
+
+- name: Confirm package integrity
+  ansible.builtin.debug:
+    msg: >-
+      {{ s1_pkg_name }} verified: sha256 matches
+      ({{ s1_pkg_expected.sha256 | lower | truncate(16, true, '') }}...).
+  when: s1_pkg_sum.stat.checksum is defined
+
+- name: Note that verification was skipped for an already-unpacked package
+  ansible.builtin.debug:
+    msg: >-
+      {{ s1_docker_ansible }} already exists — skipping the checksum re-read.
+      Delete that directory to force a fresh verified unpack.
+  when:
+    - s1_already_unpacked.stat.exists
+    - s1_pkg_expected.sha256 is defined
+
+# --- Unpack -----------------------------------------------------------------
+
+- name: Create the version directory
+  ansible.builtin.file:
+    path: "{{ s1_dest }}"
+    state: directory
+    owner: "{{ ansible_user | default(ansible_user_id) }}"
+    mode: "0755"
+
+# No async here: unarchive is an action plugin and action plugins cannot run
+# async. A 6GB extract takes several minutes, which is fine — Ansible imposes
+# no task timeout, and the ControlPersist/ServerAlive settings in ansible.cfg
+# keep the SSH session alive for the duration.
+- name: Unpack the deployment package
+  ansible.builtin.unarchive:
+    src: "{{ s1_package_path }}"
+    dest: "{{ s1_dest }}"
+    remote_src: true
+    owner: "{{ ansible_user | default(ansible_user_id) }}"
+    creates: "{{ s1_docker_ansible }}/deploy_mgmt.yml"
+
+- name: Read the packaged version.json
+  ansible.builtin.slurp:
+    src: "{{ s1_dest }}/version.json"
+  register: s1_version_json
+
+- name: Assert the package matches the expected version
+  ansible.builtin.assert:
+    that:
+      - (s1_version_json.content | b64decode | from_json).release == s1_version_resolved
+    fail_msg: >-
+      Package contains release
+      '{{ (s1_version_json.content | b64decode | from_json).release }}'
+      but this run targets '{{ s1_version_resolved }}'. Fix s1_version or
+      s1_package_path — a mismatch puts the files in the wrong directory.
+
+- name: Ensure the vendor shell scripts are executable
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "0755"
+  loop:
+    - "{{ s1_docker_ansible }}/rhel/offline_installation.sh"
+    - "{{ s1_docker_ansible }}/configuration/configuration_script.sh"
+  failed_when: false

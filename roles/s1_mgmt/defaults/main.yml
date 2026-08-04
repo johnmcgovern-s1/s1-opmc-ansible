@@ -1,0 +1,137 @@
+---
+# ============================================================================
+# Package location and layout
+# ============================================================================
+
+# Absolute path to the pre-staged .tar.gz ON THE TARGET SERVER.
+s1_package_path: /var/tmp/SentinelOne_MGMT_S_25_3_2_096.tar.gz
+
+# Sidecar of known-good SHA256 sums, checked before the package is unpacked.
+# The vendor's download service is unreliable and truncated/corrupt tarballs
+# otherwise fail deep inside the deploy.
+s1_checksums_file: "{{ playbook_dir }}/checksums.yml"
+
+# When true (default), a package with no entry in the sidecar is refused
+# outright. The package's RPMs are installed with gpgcheck disabled and its
+# playbooks run as root, so an unverified package is a supply-chain risk.
+# Set false to let an unlisted package through with a warning instead.
+s1_require_checksum: true
+
+# Version directory name, e.g. "S-25.3.2". Left empty it is derived from the
+# package filename, matching both vendor naming styles:
+#   SentinelOne_MGMT_S_25_3_2_096.tar.gz -> S-25.3.2
+#   sentinel_mgmt_o_25_4_6_034.tar.gz    -> O-25.4.6
+s1_version: ""
+
+# Parent directory for the extracted tree. Empty = home dir of ansible_user,
+# giving ~/S-25.3.2/. Old versions are left in place for easy upgrades; it is
+# the operator's job to prune them.
+s1_install_base: ""
+
+# ============================================================================
+# Console configuration -> written into the vendor's group_vars/all/config.yml
+# Any value left empty is NOT written; the vendor's blank default is kept.
+# ============================================================================
+
+s1_mount_dir: /data
+s1_accessible_url: ""
+
+# Certificates: paths on the CONTROL NODE, copied to the target.
+s1_key_src: certificates/certificate.key
+s1_pem_src: certificates/certificate.pem
+
+# Where the pair is staged on the TARGET (root-only, 0700). The vendor deploy
+# rsyncs them from here as root, so any root-readable path works — do not use
+# a world-writable directory like /tmp for private key material.
+s1_cert_dir: /etc/sentinelone/certs
+
+s1_admin_fullname: ""
+s1_admin_email: ""
+# Set in group_vars/all/vault.yml (ansible-vault encrypted).
+s1_admin_password: ""
+
+# Air-gapped deployments leave all of these empty.
+s1_custom_aes_key: ""
+s1_cloud_address: ""
+s1_cloud_token: ""
+s1_mgmt_id: ""
+s1_account_name: ""
+s1_salesforce_id: ""
+
+# ============================================================================
+# Behaviour
+# ============================================================================
+
+# Storage checks are advisory by default: a separate /data partition is a
+# sizing guardrail, not an installer requirement.
+s1_verify_storage: true
+s1_storage_fail_hard: false
+s1_min_free_gb_install: 20     # for the extracted package (~15GB)
+s1_min_free_gb_data: 100       # for mount_dir
+
+# Deploy is gated on /s1/conf/settings.ini. Set true to re-run over an install.
+s1_force_redeploy: false
+s1_deploy_timeout: 7200
+
+# Required from S-24.2.5.173 onward. Both current packages are past that.
+s1_set_force_legacy_token: true
+
+# Only needed if the bundled python36 (S-prefix) proves insufficient. Requires
+# an external repo (RHSM or DVD) — the bundled repo has no python38.
+s1_install_python38: false
+
+# Escape hatch for validating on an untested minor release.
+s1_allow_unsupported_os: false
+
+# O-prefix packages ship MongoDB 5.0+, which requires AVX. Set false only if
+# you are certain the package ships MongoDB 4.4 or earlier.
+s1_require_avx: true
+
+# Resource floors. The console runs 20+ containers; an under-provisioned host
+# fails ~20 minutes into the vendor deploy with "Cannot allocate memory" and can
+# leave the box unreachable. Check the vendor's prerequisites article for the
+# authoritative numbers and adjust.
+s1_check_resources: true
+s1_min_ram_gb: 16      # hard floor — below this the deploy will not complete
+s1_rec_ram_gb: 32      # recommended
+s1_rec_vcpus: 8
+
+# Containers the vendor documents as expected-broken. Excluded from the health
+# check so a clean install does not report false failures.
+s1_known_unhealthy_containers:
+  - incoming-command-processor
+  - tags-synchronizer
+  - mgmt-entities-uploader
+  - mgmt-entities-cdc
+  - ranger-fingerprint-consumer
+
+# ============================================================================
+# Ansible runtime — discovered from the host, not hardcoded
+# ============================================================================
+# The vendor moves the real ansible-playbook between releases, and it varies
+# for the SAME prefix on the SAME OS:
+#
+#   S-25.3.2  RHEL 8/9   pip3 --user            -> /root/.local/bin
+#   O-25.4.4  RHEL 8/9   pip --prefix=/usr/local -> /usr/local/bin
+#   O-25.4.6+ RHEL 8     pip --prefix=/usr/local -> /usr/local/bin
+#   O-25.4.6+ RHEL 9/10  venv                    -> /opt/sentinelone/installer/bin
+#
+# A table keyed on prefix+major cannot express that, and got it wrong for
+# O-25.4.4 on RHEL 9 (observed live: the deploy aborted at bootstrap). So the
+# runtime is read off the host after offline_installation.sh has run — see
+# 40_bootstrap.yml.
+#
+# Every release examined creates this path for backward compatibility, and the
+# vendor docs tell customers to invoke it directly:
+s1_documented_playbook_bin: /root/.local/bin/ansible-playbook
+
+# Set either of these to bypass discovery entirely.
+s1_playbook_bin: ""
+s1_python_interpreter: ""
+
+# RHEL majors each prefix supports, from the case statement in
+# docker_ansible/rhel/offline_installation.sh. Used as the upgrade OS gate.
+# RHEL 10 appears only in O-26.1.1 and later.
+s1_supported_rhel_majors:
+  S: ["7", "8", "9"]
+  O: ["7", "8", "9", "10"]

@@ -1,0 +1,220 @@
+---
+# Chicken-and-egg: Ansible modules need Python on the managed host, but
+# RHEL 8.10 ships only Python 3.6.8 and ansible-core 2.18+ dropped managed-node
+# support below 3.8. Without a fix you get a cryptic failure on the very first
+# task:
+#
+#   SyntaxError: future feature annotations is not defined
+#
+# `raw` is the only module needing no Python, so it bootstraps the rest.
+#
+# THIS IS A RHEL 8 PROBLEM ONLY. RHEL 9.x ships Python 3.9 as /usr/bin/python3
+# and needs none of this.
+#
+# Air-gap: tried in order, cheapest and least invasive first —
+#   1. A suitable interpreter is already present.
+#   2. dnf from whatever repos the host has. Covers RHSM/CDN, Satellite or
+#      Capsule, a local reposync mirror, and a mounted DVD repo alike — dnf does
+#      not care that the repo is internal.
+#   3. The RPMs inside the SentinelOne tarball itself. O-prefix packages bundle
+#      python3.11/python39 under docker_ansible/rhel/rhel8. Needs no external
+#      access whatsoever. S-prefix packages bundle only python36, so this does
+#      not help them.
+#   4. Fail, naming the remaining options.
+#
+# For a fully air-gapped S-prefix install with no repos at all, the clean answer
+# is ansible-core <= 2.16 on the CONTROL NODE, which still supports Python 3.6
+# managed nodes and needs nothing on the target. See README.
+#
+# python3.11 installs standalone as /usr/bin/python3.11 and does NOT change
+# /usr/bin/python3 or the `python` alternative, so the vendor installer — which
+# runs `alternatives --set python` itself — is unaffected.
+
+- name: Probe for a Python that ansible-core can use
+  ansible.builtin.raw: |
+    for p in /usr/bin/python3.13 /usr/bin/python3.12 /usr/bin/python3.11 \
+             /usr/bin/python3.10 /usr/bin/python3.9 /usr/bin/python3; do
+      if [ -x "$p" ] && "$p" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' 2>/dev/null; then
+        echo "FOUND=$p"; exit 0
+      fi
+    done
+    exit 1
+  register: s1_py_probe
+  changed_when: false
+  failed_when: false
+
+- name: Bootstrap a usable Python
+  when: s1_py_probe.rc != 0
+  block:
+
+    # --- Tier 2: whatever repos the host already has ------------------------
+    # Short timeouts so a host with no reachable repo fails fast instead of
+    # retrying for minutes.
+    - name: Try installing python3.11 from configured repos
+      ansible.builtin.raw: >-
+        dnf install -y --setopt=timeout=10 --setopt=retries=1
+        python3.11 || dnf install -y --setopt=timeout=10 --setopt=retries=1 python39
+      register: s1_py_dnf
+      changed_when: false
+      failed_when: false
+
+    - name: Re-probe after the repo attempt
+      ansible.builtin.raw: |
+        for p in /usr/bin/python3.13 /usr/bin/python3.12 /usr/bin/python3.11 \
+                 /usr/bin/python3.10 /usr/bin/python3.9; do
+          [ -x "$p" ] && { echo "FOUND=$p"; exit 0; }
+        done
+        exit 1
+      register: s1_py_after_dnf
+      changed_when: false
+      failed_when: false
+
+    # --- Tier 3: the RPMs inside the SentinelOne tarball ---------------------
+    - name: Install Python from the RPMs bundled in the deployment package
+      when: s1_py_after_dnf.rc != 0
+      block:
+
+        # This tier runs BEFORE the staging role verifies the package, and it
+        # installs RPMs with gpgcheck disabled — so the tarball must be
+        # verified here, not just at staging time. Role defaults are not in
+        # scope in this play, hence the explicit fallbacks.
+        - name: Load the known-good checksums from the control node
+          ansible.builtin.include_vars:
+            file: "{{ s1_checksums_file | default(playbook_dir ~ '/checksums.yml') }}"
+            name: s1_boot_sums
+          failed_when: false
+
+        - name: Resolve the expected checksum for this package
+          ansible.builtin.set_fact:
+            s1_boot_expected: >-
+              {{ ((s1_boot_sums | default({})).packages | default({}))[s1_package_path | basename]
+                 | default({}) }}
+
+        - name: Refuse to bootstrap from an unverifiable package
+          ansible.builtin.fail:
+            msg: >-
+              No checksum recorded for {{ s1_package_path | basename }} in
+              checksums.yml — refusing to install RPMs from an unverified
+              package (the bundled repo has gpgcheck disabled). Add an entry,
+              or re-run with -e s1_require_checksum=false to accept the risk.
+          when:
+            - s1_require_checksum | default(true) | bool
+            - s1_boot_expected.sha256 is not defined
+
+        - name: Verify the package before using its RPMs (reads ~5GB, about a minute)
+          ansible.builtin.raw: |
+            expected='{{ s1_boot_expected.sha256 | lower }}'
+            actual=$(sha256sum {{ s1_package_path | quote }} | awk '{print $1}')
+            if [ "$actual" != "$expected" ]; then
+              echo "CHECKSUM MISMATCH: expected $expected got $actual"; exit 1
+            fi
+            echo "CHECKSUM OK"
+          register: s1_boot_sum
+          changed_when: false
+          when: s1_boot_expected.sha256 is defined
+
+        - name: Warn that the bootstrap proceeds with an unverified package
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: no checksum recorded for
+              {{ s1_package_path | basename }} — installing bootstrap RPMs from
+              an UNVERIFIED package.
+          when: s1_boot_expected.sha256 is not defined
+
+        - name: Extract the bundled RPM repository from the tarball
+          # Scans the whole 5-6GB gzip stream, so a couple of minutes. Only
+          # reached when no repo could supply a Python, i.e. true air-gap.
+          ansible.builtin.raw: |
+            set -e
+            PKG={{ s1_package_path | quote }}
+            [ -f "$PKG" ] || { echo "PACKAGE_MISSING"; exit 1; }
+            MAJ=$(. /etc/os-release; echo "${VERSION_ID%%.*}")
+            DEST=/var/tmp/s1-py-bootstrap
+            rm -rf "$DEST"; mkdir -p "$DEST"
+            tar -xzf "$PKG" -C "$DEST" --wildcards "docker_ansible/rhel/rhel${MAJ}/*" 2>/dev/null \
+              || { echo "EXTRACT_FAILED"; exit 1; }
+            echo "REPO=$DEST/docker_ansible/rhel/rhel${MAJ}"
+          register: s1_py_extract
+          changed_when: true
+          failed_when: false
+
+        - name: Install python3.11 from the bundled repository
+          ansible.builtin.raw: |
+            set -e
+            REPO=/var/tmp/s1-py-bootstrap/docker_ansible/rhel/rhel$(. /etc/os-release; echo "${VERSION_ID%%.*}")
+            cat > /etc/yum.repos.d/s1-python-bootstrap.repo <<EOF
+            [s1-python-bootstrap]
+            name=SentinelOne bundled RPMs (temporary, python bootstrap)
+            baseurl=file://${REPO}
+            enabled=0
+            gpgcheck=0
+            module_hotfixes=1
+            EOF
+            dnf install -y --disablerepo=* --enablerepo=s1-python-bootstrap python3.11 \
+              || dnf install -y --disablerepo=* --enablerepo=s1-python-bootstrap python39
+            rm -f /etc/yum.repos.d/s1-python-bootstrap.repo
+          register: s1_py_bundled
+          changed_when: true
+          failed_when: false
+          when: "'REPO=' in (s1_py_extract.stdout | default(''))"
+
+        - name: Remove the extracted bootstrap repository
+          ansible.builtin.raw: rm -rf /var/tmp/s1-py-bootstrap /etc/yum.repos.d/s1-python-bootstrap.repo
+          changed_when: false
+          failed_when: false
+
+    # --- Final probe ---------------------------------------------------------
+    - name: Re-probe after all bootstrap attempts
+      ansible.builtin.raw: |
+        for p in /usr/bin/python3.13 /usr/bin/python3.12 /usr/bin/python3.11 \
+                 /usr/bin/python3.10 /usr/bin/python3.9; do
+          [ -x "$p" ] && { echo "FOUND=$p"; exit 0; }
+        done
+        exit 1
+      register: s1_py_final
+      changed_when: false
+      failed_when: false
+
+    - name: Fail with guidance when no usable Python could be provided
+      ansible.builtin.fail:
+        msg: |
+          No Python 3.8+ on {{ inventory_hostname }}, and none could be
+          installed. ansible-core {{ ansible_version.string }} cannot manage a
+          host whose newest Python is 3.6.
+
+          Tried: configured repos (dnf), then the RPMs bundled in
+          {{ s1_package_path | basename }}.
+
+          Remaining options, best first:
+
+            1. Use ansible-core <= 2.16 on the CONTROL NODE. It is the last
+               release supporting Python 3.6 managed nodes, needs NOTHING on the
+               target, and works air-gapped for every package. Example:
+                 python3 -m venv ~/s1-ansible
+                 ~/s1-ansible/bin/pip install 'ansible-core>=2.16,<2.17'
+                 ~/s1-ansible/bin/pip install ansible  # for community.general
+
+            2. Give the host a repo that carries python3.11 — Satellite or
+               Capsule, a local reposync mirror, or the RHEL 8.10 DVD:
+                 mount -o loop rhel-8.10-x86_64-dvd.iso /mnt/dvd
+                 dnf config-manager --add-repo file:///mnt/dvd/AppStream
+
+            3. Install it by hand:  dnf install -y python3.11
+
+          Note this affects RHEL 8 only; RHEL 9.x ships Python 3.9 by default.
+      when: (s1_py_final.rc | default(1)) != 0
+
+- name: Pin the discovered interpreter for the rest of the run
+  ansible.builtin.set_fact:
+    ansible_python_interpreter: >-
+      {{ ((s1_py_probe if s1_py_probe.rc == 0 else s1_py_final).stdout_lines
+          | select('search', '^FOUND=') | first | trim).split('=')[1] }}
+
+- name: Report the interpreter in use
+  ansible.builtin.debug:
+    msg: >-
+      Managed-node interpreter: {{ ansible_python_interpreter }}
+      {{ '(already present)' if s1_py_probe.rc == 0
+         else ('(installed from the bundled package RPMs)'
+               if (s1_py_bundled is defined and s1_py_bundled is not skipped)
+               else '(installed from a configured repo)') }}

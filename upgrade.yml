@@ -1,0 +1,19 @@
+---
+# One hop per run. See UPGRADE.md.
+#   ansible-playbook upgrade.yml -e s1_snapshot_confirmed=true
+
+- name: Ensure the target has a Python ansible-core can use
+  hosts: s1_mgmt
+  gather_facts: false
+  become: true
+  tags: [always]
+  tasks:
+    - import_tasks: tasks/bootstrap_python.yml
+
+- name: Upgrade the SentinelOne self-hosted Management Console
+  hosts: s1_mgmt
+  gather_facts: true
+  become: true
+  any_errors_fatal: true
+  roles:
+    - s1_upgrade

@@ -1,0 +1,7 @@
+---
+# Install with: ansible-galaxy collection install -r requirements.yml
+collections:
+  # Provides community.general.ini_file, used to set force_legacy_token
+  # in /s1/conf/settings.ini after deployment.
+  - name: community.general
+    version: ">=7.0.0"

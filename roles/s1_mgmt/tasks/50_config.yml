@@ -1,0 +1,74 @@
+---
+# The shipped config.yml carries ~20 keys beyond the handful an operator sets,
+# including the derived paths:
+#   postgres_dir: "{% if mount_dir %}{{ mount_dir }}/postgres{% else %}/postgres{% endif %}"
+# Overwriting the file would strip those and break the deploy, so only the keys
+# we own are edited in place. The tree is freshly extracted every run, so the
+# file is always pristine beforehand.
+
+- name: Build the set of config keys to write
+  ansible.builtin.set_fact:
+    s1_config_public:
+      mount_dir: "{{ s1_mount_dir }}"
+      sentinel_key_file: "{{ s1_key_path }}"
+      sentinel_pem_file: "{{ s1_pem_path }}"
+      accessible_url: "{{ s1_accessible_url }}"
+      admin_fullname: "{{ s1_admin_fullname }}"
+      admin_email: "{{ s1_admin_email }}"
+      sentinel_cloud_address: "{{ s1_cloud_address }}"
+      mgmt_id: "{{ s1_mgmt_id }}"
+      account_name: "{{ s1_account_name }}"
+      salesforce_id: "{{ s1_salesforce_id }}"
+    s1_config_secret:
+      admin_password: "{{ s1_admin_password }}"
+      sentinel_cloud_token: "{{ s1_cloud_token }}"
+      custom_aes_key: "{{ s1_custom_aes_key }}"
+
+- name: Back up the pristine vendor config
+  ansible.builtin.copy:
+    src: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+    dest: "{{ s1_docker_ansible }}/group_vars/all/config.yml.orig"
+    remote_src: true
+    force: false
+    mode: "0640"
+
+# Empty values are skipped, leaving the vendor's blank default in place — which
+# is exactly what an air-gapped install wants for the cloud and mgmt_id keys.
+- name: Write non-sensitive configuration values
+  ansible.builtin.lineinfile:
+    path: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+    regexp: "^{{ item.key }}:"
+    line: "{{ item.key }}: {{ item.value | to_json }}"
+    state: present
+  loop: "{{ s1_config_public | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: item.value | default('', true) | string | length > 0
+
+- name: Write sensitive configuration values
+  ansible.builtin.lineinfile:
+    path: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+    regexp: "^{{ item.key }}:"
+    line: "{{ item.key }}: {{ item.value | to_json }}"
+    state: present
+  loop: "{{ s1_config_secret | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: item.value | default('', true) | string | length > 0
+  no_log: true
+
+- name: Restrict permissions on the config file
+  ansible.builtin.file:
+    path: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+    mode: "0640"
+
+- name: Read back the effective configuration
+  ansible.builtin.slurp:
+    src: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+  register: s1_config_raw
+
+# Masked in-process rather than via a shell pipeline: no quoting to get wrong,
+# and the secrets never reach a command line or the process table.
+- name: Display the effective configuration with secrets masked
+  ansible.builtin.debug:
+    msg: "{{ s1_config_raw.content | b64decode | regex_replace('(?m)^(admin_password|sentinel_cloud_token|custom_aes_key):.*$', '\\1: ***MASKED***') }}"

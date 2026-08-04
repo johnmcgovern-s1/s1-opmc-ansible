@@ -1,0 +1,46 @@
+---
+# Copy to main.yml and edit. main.yml is gitignored so your real hostnames,
+# email addresses and paths are never committed.
+#
+#   cp group_vars/all/main.yml.example group_vars/all/main.yml
+#
+# Anything left empty is not written to the vendor config — the blank vendor
+# default is kept, which is what an air-gapped install wants.
+
+# --- Package ---------------------------------------------------------------
+# Path to the tarball ON THE TARGET SERVER (you stage it there yourself; the
+# playbook does not transfer it). Verified against checksums.yml before unpack.
+s1_package_path: /home/CHANGEME/SentinelOne_MGMT_S_25_3_2_096.tar.gz
+
+# Leave empty to derive from the filename (S-25.3.2 / O-25.4.6).
+s1_version: ""
+
+# Leave empty to extract into the home directory of ansible_user, producing
+# ~/S-25.3.2/. Set this if /home is too small.
+s1_install_base: ""
+
+# --- Console ---------------------------------------------------------------
+s1_mount_dir: /data
+s1_accessible_url: https://console.example.com
+
+s1_admin_fullname: CHANGEME
+s1_admin_email: changeme@example.com
+# s1_admin_password lives in group_vars/all/vault.yml
+
+# --- Certificates (paths on the CONTROL NODE) -------------------------------
+s1_key_src: certificates/certificate.key
+s1_pem_src: certificates/certificate.pem
+s1_cert_dir: /etc/sentinelone/certs
+
+# --- Air-gapped: leave every one of these empty -----------------------------
+s1_custom_aes_key: ""
+s1_cloud_address: ""
+s1_cloud_token: ""
+s1_mgmt_id: ""
+s1_account_name: ""
+s1_salesforce_id: ""
+
+# --- Behaviour --------------------------------------------------------------
+s1_verify_storage: true
+s1_storage_fail_hard: false
+s1_force_redeploy: false

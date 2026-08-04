@@ -1,0 +1,64 @@
+---
+- name: List all containers
+  ansible.builtin.command: docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}'
+  register: s1_ps
+  changed_when: false
+
+- name: Show container status
+  ansible.builtin.debug:
+    var: s1_ps.stdout_lines
+
+# incoming-command-processor restart-loops by design after a fresh install, and
+# four others report unhealthy on purpose. Excluding them keeps a clean install
+# from reporting false failures. Confirmed on S-25.3.2.
+- name: Identify containers that are not Up
+  ansible.builtin.set_fact:
+    s1_down: >-
+      {{ s1_ps.stdout_lines
+         | reject('search', '\tUp')
+         | reject('search', '^(' ~ (s1_known_unhealthy_containers | join('|')) ~ ')\t')
+         | list }}
+    s1_expected_down: >-
+      {{ s1_ps.stdout_lines
+         | reject('search', '\tUp')
+         | select('search', '^(' ~ (s1_known_unhealthy_containers | join('|')) ~ ')\t')
+         | list }}
+
+- name: Note containers that are down by design
+  ansible.builtin.debug:
+    msg: >-
+      Not running, but expected per the vendor docs (safe to ignore):
+      {{ s1_expected_down | map('regex_replace', '\t.*', '') | join(', ') }}
+  when: s1_expected_down | length > 0
+
+- name: Report containers that are unexpectedly not running
+  ansible.builtin.debug:
+    msg: |
+      WARNING: these containers are not Up and are not on the expected list:
+      {{ s1_down | join('\n') }}
+      Try: systemctl restart docker
+  when: s1_down | length > 0
+
+# validate_certs is off deliberately: this is a liveness probe run from the
+# console host itself, where s1_accessible_url may not resolve to a name the
+# certificate covers. It proves the service is up, not the TLS chain.
+- name: Check the console responds over HTTPS
+  ansible.builtin.uri:
+    url: "{{ s1_accessible_url }}"
+    validate_certs: false
+    status_code: [200, 302, 301]
+    timeout: 30
+  register: s1_http
+  retries: 20
+  delay: 15
+  until: s1_http is succeeded
+  failed_when: false
+
+- name: Final report
+  ansible.builtin.debug:
+    msg:
+      - "version    : {{ s1_version_resolved }}"
+      - "installed  : {{ s1_dest }}"
+      - "containers : {{ (s1_ps.stdout_lines | length) }} total, {{ s1_down | length }} unexpectedly down, {{ s1_expected_down | length }} down by design"
+      - "console    : {{ s1_accessible_url }} -> {{ s1_http.status | default('no response') }}"
+      - "next       : log in and check Help > About for the version (SHIFT+F5 for a hard refresh)"

@@ -1,0 +1,18 @@
+---
+# Copy to group_vars/all/vault.yml and encrypt:
+#   cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+#   ansible-vault encrypt group_vars/all/vault.yml
+#
+# It MUST live in group_vars/all/ — a file at group_vars/vault.yml would map to
+# a host group named "vault" and would never be loaded.
+#
+# Password rules from the vendor docs:
+#   - at least 10 characters
+#   - 3+ of: uppercase, lowercase, digits, symbols
+#   - no whitespace, no single or double quotes
+#   - rejected outright: sentinel, sentinel1, sentinel1!
+
+s1_admin_password: "ChangeMe123!"
+
+# Air-gapped installs leave this empty.
+s1_cloud_token: ""

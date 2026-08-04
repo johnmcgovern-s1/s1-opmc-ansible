@@ -1,0 +1,80 @@
+---
+# Hands off to the vendor's own playbook. Note this runs the vendor's pinned
+# Ansible ON the target — it is not our controller's Ansible. deploy_mgmt.yml
+# still uses the removed `include:` directive, so it only works with the
+# bundled version (2.15.x), never with ansible-core 2.16+.
+
+- name: Check whether the console is already installed
+  ansible.builtin.stat:
+    path: /s1/conf/settings.ini
+  register: s1_settings
+
+- name: Report that deployment is being skipped
+  ansible.builtin.debug:
+    msg: >-
+      /s1/conf/settings.ini already exists — the console is installed.
+      Set s1_force_redeploy=true to run deploy_mgmt.yml over it anyway.
+  when:
+    - s1_settings.stat.exists
+    - not s1_force_redeploy | bool
+
+# s1_bin / s1_py are discovered in 40_bootstrap.yml, not in facts, because the
+# vendor's layout is only knowable after offline_installation.sh has run. A
+# tag-limited run that skips bootstrap would otherwise invoke the vendor
+# playbook with empty paths.
+- name: Assert the Ansible runtime was resolved
+  ansible.builtin.assert:
+    that:
+      - s1_bin | default('') | length > 0
+      - s1_py | default('') | length > 0
+    fail_msg: >-
+      The vendor Ansible runtime has not been resolved. It is discovered during
+      the bootstrap stage, so run without --tags (or include 'bootstrap'), or
+      set s1_playbook_bin and s1_python_interpreter explicitly.
+
+- name: Run the vendor deployment playbook
+  ansible.builtin.command: >-
+    {{ s1_bin | quote }} deploy_mgmt.yml
+    -i hosts
+    -e ansible_python_interpreter={{ s1_py | quote }}
+  args:
+    chdir: "{{ s1_docker_ansible }}"
+  environment:
+    HOME: /root
+    ANSIBLE_FORCE_COLOR: "0"
+  register: s1_deploy
+  changed_when: true
+  failed_when: >-
+    s1_deploy.rc != 0 or
+    (s1_deploy.stdout is search('failed=[1-9]'))
+  async: "{{ s1_deploy_timeout }}"
+  poll: 30
+  when: (not s1_settings.stat.exists) or (s1_force_redeploy | bool)
+
+- name: Show the vendor PLAY RECAP
+  ansible.builtin.debug:
+    msg: "{{ s1_deploy.stdout_lines[-15:] | default([]) }}"
+  when: s1_deploy is not skipped
+
+# The vendor playbook is not guaranteed to no_log the secrets it receives via
+# config.yml, so the literal secret values are masked before the log is saved.
+- name: Save the full deployment log to the version directory
+  vars:
+    s1_log_secrets: >-
+      {{ [s1_admin_password | default(''),
+          s1_cloud_token | default(''),
+          s1_custom_aes_key | default('')] | select() | list }}
+    s1_log_raw: |
+      === stdout ===
+      {{ s1_deploy.stdout | default('') }}
+
+      === stderr ===
+      {{ s1_deploy.stderr | default('') }}
+  ansible.builtin.copy:
+    content: >-
+      {{ s1_log_raw
+         | regex_replace(s1_log_secrets | map('regex_escape') | join('|'), '***MASKED***')
+         if s1_log_secrets | length > 0 else s1_log_raw }}
+    dest: "{{ s1_dest }}/deploy-{{ ansible_date_time.iso8601_basic_short | default('run') }}.log"
+    mode: "0640"
+  when: s1_deploy is not skipped

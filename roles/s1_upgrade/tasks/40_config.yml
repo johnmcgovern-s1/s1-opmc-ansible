@@ -1,0 +1,93 @@
+---
+# The deploy must point at where the data already lives. There are two ways to
+# express that, and which one is correct depends on the existing layout:
+#
+#   A. Derivable (/data/postgres + /data/mongo) -> set mount_dir: /data and let
+#      postgres_dir, mongo_dir, upload_dir, docker_dir and log_dir all derive.
+#      Everything keeps the paths it had at install.
+#
+#   B. Not derivable (custom paths) -> empty mount_dir and pin postgres_dir and
+#      mongo_dir explicitly, per the vendor doc. Note this moves upload_dir to
+#      /uploads and blanks log_dir, because those derive from mount_dir too.
+#
+# The vendor doc only documents form B, which silently repoints uploads and logs
+# on any console installed with mount_dir set. Confirmed live: an
+# S-25.3.2 -> O-25.4.4 hop moved /data/uploads to /uploads and orphaned
+# /data/s1. Set s1_force_empty_mount_dir=true to force form B regardless.
+#
+# The console's own settings (URL, admin user, certificates) already live in
+# /s1/conf/settings.ini and are not re-supplied — the vendor only enforces
+# admin_password when new_install is true.
+
+- name: Back up the pristine vendor config
+  ansible.builtin.copy:
+    src: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+    dest: "{{ s1_docker_ansible }}/group_vars/all/config.yml.orig"
+    remote_src: true
+    force: false
+    mode: "0640"
+
+# Path A — the layout is derivable (e.g. /data/postgres + /data/mongo).
+# Set mount_dir and leave postgres_dir/mongo_dir at their vendor defaults, so
+# EVERY derived path — uploads, dockers, logs — resolves exactly as it did at
+# install. This is the common case for consoles installed by install.yml.
+- name: Set mount_dir to the derived parent
+  ansible.builtin.lineinfile:
+    path: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+    regexp: "^mount_dir:"
+    line: "mount_dir: {{ s1_mount_dir_derived | to_json }}"
+    state: present
+  when:
+    - s1_mount_dir_derived | length > 0
+    - not s1_force_empty_mount_dir | bool
+
+# Path B — the layout cannot be expressed as <mount_dir>/postgres and
+# <mount_dir>/mongo, so follow the vendor doc: empty mount_dir and pin the two
+# database directories explicitly. Note this also moves upload_dir to /uploads
+# and blanks log_dir, which is inherent to the vendor's own config template.
+- name: Empty mount_dir and pin the database directories explicitly
+  when: s1_mount_dir_derived | length == 0 or s1_force_empty_mount_dir | bool
+  block:
+
+    - name: Ensure mount_dir is empty
+      ansible.builtin.lineinfile:
+        path: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+        regexp: "^mount_dir:"
+        line: "mount_dir:"
+        state: present
+
+    - name: Pin the existing database directories
+      ansible.builtin.lineinfile:
+        path: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+        regexp: "^{{ item.key }}:"
+        line: "{{ item.key }}: {{ item.value | to_json }}"
+        state: present
+      loop:
+        - { key: postgres_dir, value: "{{ s1_pg_dir }}" }
+        - { key: mongo_dir, value: "{{ s1_mg_dir }}" }
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Warn that derived paths will move
+      ansible.builtin.debug:
+        msg: >-
+          NOTE: mount_dir emptied, so upload_dir becomes /uploads and log_dir is
+          blank. If this console previously used {{ s1_pg_dir | dirname }}/uploads,
+          move its contents or the console will not find previously uploaded
+          agent packages.
+
+- name: Restrict permissions on the config file
+  ansible.builtin.file:
+    path: "{{ s1_docker_ansible }}/group_vars/all/config.yml"
+    mode: "0640"
+
+- name: Show the effective upgrade configuration
+  ansible.builtin.command: >-
+    grep -E '^(mount_dir|postgres_dir|mongo_dir|dump_dir|upload_dir|docker_dir|log_dir):'
+    {{ (s1_docker_ansible ~ '/group_vars/all/config.yml') | quote }}
+  register: s1_up_config
+  changed_when: false
+
+- name: Display it
+  ansible.builtin.debug:
+    var: s1_up_config.stdout_lines

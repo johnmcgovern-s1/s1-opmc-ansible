@@ -1,0 +1,216 @@
+---
+# --- Snapshot gate ----------------------------------------------------------
+# The documented recovery for a failed upgrade is "revert to your snapshot".
+# Refuse to start without an explicit confirmation that one exists.
+
+- name: Require confirmation that a snapshot or backup exists
+  ansible.builtin.fail:
+    msg: |
+      No snapshot confirmed. Take a VM snapshot (or a backup with your own
+      tooling) before upgrading {{ s1_current_version }} -> {{ s1_version_resolved }},
+      then re-run with:
+
+        -e s1_snapshot_confirmed=true
+
+      On the Take Snapshot dialog, disable "Snapshot the virtual machine's
+      memory". Agents stay connected while a snapshot is taken.
+  when: not s1_snapshot_confirmed | bool
+
+# --- OS gate ----------------------------------------------------------------
+
+- name: Assert the OS is supported for this hop
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'RedHat'
+      - ansible_distribution_major_version in s1_supported_rhel_majors[s1_prefix]
+    fail_msg: >-
+      No runtime entry for {{ s1_prefix }}-prefix on
+      {{ ansible_distribution }} {{ ansible_distribution_major_version }}.
+      If you are upgrading the OS as well, do it in the order the vendor
+      documents: OS to a version supported by BOTH releases, then the
+      platform, then optionally the OS again.
+
+# /tmp mounted noexec breaks the vendor's pip and Docker installs.
+- name: Check whether /tmp is mounted noexec
+  ansible.builtin.command: findmnt -no OPTIONS /tmp
+  register: s1_tmp_opts
+  changed_when: false
+  failed_when: false
+
+- name: Fail when /tmp is noexec
+  ansible.builtin.fail:
+    msg: >-
+      /tmp is mounted noexec, which breaks the vendor's pip and Docker
+      installation steps. Remove noexec from the /tmp entry in /etc/fstab,
+      remount, and re-run. Current options: {{ s1_tmp_opts.stdout }}
+  when: "'noexec' in (s1_tmp_opts.stdout | default(''))"
+
+# --- CPU features -------------------------------------------------------------
+# The S -> O hop takes MongoDB from 4.4 to 5.0, and MongoDB 5.0+ requires AVX.
+# A console happily running an S-prefix release on a CPU without AVX will
+# crash-loop the moment it is upgraded to O — the vendor playbook only notices
+# ~7 minutes in, at "Wait for mongo to be available".
+
+- name: Check for AVX support
+  ansible.builtin.command: grep -qw avx /proc/cpuinfo
+  register: s1_up_avx
+  changed_when: false
+  failed_when: false
+
+- name: Fail when upgrading to an O-prefix release without AVX
+  ansible.builtin.fail:
+    msg: |
+      This CPU has no AVX, but {{ s1_version_resolved }} ships MongoDB 5.0+,
+      which requires it. The upgrade will run for several minutes and then fail
+      at "Wait for mongo to be available", leaving a half-migrated console.
+
+      CPU: {{ ansible_processor[2] | default(ansible_processor[0] | default('unknown')) }}
+
+      {{ s1_current_version }} ships MongoDB 4.4 and does not need AVX, which is
+      why the console runs today. Fix the CPU before upgrading.
+
+      On Proxmox: shut the VM down, set Hardware > Processors > Type to 'host'
+      (or 'x86-64-v3'), boot, and confirm with: grep -w avx /proc/cpuinfo
+
+      Note a snapshot rollback restores the old VM config and will silently undo
+      this — re-check after any revert.
+  when:
+    - s1_require_avx | bool
+    - s1_prefix == 'O'
+    - s1_up_avx.rc != 0
+
+# --- Package presence -------------------------------------------------------
+
+- name: Assert the deployment package is present on the target
+  ansible.builtin.stat:
+    path: "{{ s1_package_path }}"
+  register: s1_pkg_up
+
+- name: Fail when the package is missing
+  ansible.builtin.fail:
+    msg: >-
+      Deployment package for {{ s1_version_resolved }} not found at
+      {{ s1_package_path }}. Copy it to the server first.
+  when: not s1_pkg_up.stat.exists
+
+# --- Locate the existing databases ------------------------------------------
+# The upgrade doc: "You must know the path to your Postgres and Mongo
+# databases. In most cases, it will be / or /data."
+
+- name: Probe for the standard data layouts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: s1_dir_probe
+  loop:
+    - /data/postgres
+    - /data/mongo
+    - /postgres
+    - /mongo
+
+- name: Resolve the Postgres and Mongo directories
+  ansible.builtin.set_fact:
+    s1_pg_dir: >-
+      {{ s1_postgres_dir if s1_postgres_dir | length > 0
+         else ('/data/postgres' if s1_dir_probe.results[0].stat.exists
+               else ('/postgres' if s1_dir_probe.results[2].stat.exists else '')) }}
+    s1_mg_dir: >-
+      {{ s1_mongo_dir if s1_mongo_dir | length > 0
+         else ('/data/mongo' if s1_dir_probe.results[1].stat.exists
+               else ('/mongo' if s1_dir_probe.results[3].stat.exists else '')) }}
+
+- name: Fail when the database directories cannot be determined
+  ansible.builtin.fail:
+    msg: |
+      Could not locate the existing Postgres/Mongo directories. Neither
+      /data/postgres nor /postgres was found. Set them explicitly:
+
+        -e s1_postgres_dir=/your/path/postgres -e s1_mongo_dir=/your/path/mongo
+
+      If you are unsure of the correct paths, ask SentinelOne Support before
+      proceeding — pointing the upgrade at the wrong path risks data loss.
+  when: s1_pg_dir | length == 0 or s1_mg_dir | length == 0
+
+# Show the container's own view as a cross-check against the probe.
+# argv, not a folded string: the command module splits on whitespace, which
+# would shred the Go template into separate arguments.
+- name: Show the Postgres container mounts for confirmation
+  ansible.builtin.command:
+    argv:
+      - docker
+      - inspect
+      - --format
+      - '{{ "{{" }}range .Mounts{{ "}}" }}{{ "{{" }}.Source{{ "}}" }}->{{ "{{" }}.Destination{{ "}}" }} {{ "{{" }}end{{ "}}" }}'
+      - postgres
+  register: s1_pg_mounts
+  changed_when: false
+  failed_when: false
+
+# Emptying mount_dir re-derives EVERY path that keys off it, not just Postgres
+# and Mongo — upload_dir, docker_dir and log_dir move too. On a console
+# installed with mount_dir set (the default), following the doc literally
+# repoints /data/uploads to /uploads and orphans /data/s1. Observed live on the
+# S-25.3.2 -> O-25.4.4 hop.
+#
+# So: if the existing layout IS derivable from a mount_dir, keep it and let
+# every path derive as it did at install. Only fall back to the doc's
+# empty-mount_dir + explicit-dirs form when the layout genuinely cannot be
+# expressed that way.
+- name: Determine whether the layout is derivable from a mount_dir
+  ansible.builtin.set_fact:
+    s1_mount_dir_derived: >-
+      {{ (s1_pg_dir | dirname)
+         if ((s1_pg_dir | basename) == 'postgres'
+             and (s1_mg_dir | basename) == 'mongo'
+             and (s1_pg_dir | dirname) == (s1_mg_dir | dirname)
+             and (s1_pg_dir | dirname) != '/')
+         else '' }}
+
+- name: Report resolved database paths
+  ansible.builtin.debug:
+    msg:
+      - "postgres_dir : {{ s1_pg_dir }}"
+      - "mongo_dir    : {{ s1_mg_dir }}"
+      - "container mounts: {{ s1_pg_mounts.stdout | default('(container not running)') | trim }}"
+      - >-
+        layout       : {{ ('derivable — mount_dir will be set to ' ~ s1_mount_dir_derived
+                           ~ ', so uploads/logs/dockers keep their existing paths')
+                          if (s1_mount_dir_derived | length > 0 and not s1_force_empty_mount_dir | bool)
+                          else 'not derivable — mount_dir emptied, postgres_dir/mongo_dir pinned explicitly' }}
+
+# --- Dump space for the Postgres 11 -> 15 migration -------------------------
+
+- name: Measure current Postgres usage
+  ansible.builtin.command: "du -sB1M --summarize {{ s1_pg_dir | quote }}"
+  register: s1_pg_usage
+  changed_when: false
+  failed_when: false
+  when: s1_pg_action != 'none'
+
+- name: Create the dump directory
+  ansible.builtin.file:
+    path: "{{ s1_dump_dir }}"
+    state: directory
+    mode: "0755"
+  when: s1_pg_action != 'none'
+
+- name: Measure free space at the dump directory
+  ansible.builtin.command: "df -BM --output=avail {{ s1_dump_dir | quote }}"
+  register: s1_dump_avail
+  changed_when: false
+  when: s1_pg_action != 'none'
+
+- name: Assert the dump directory can hold a full Postgres copy
+  ansible.builtin.assert:
+    that:
+      - (s1_dump_avail.stdout_lines[1] | regex_replace('M$','') | int)
+        > (s1_pg_usage.stdout.split()[0] | regex_replace('M$','') | int)
+    fail_msg: |
+      {{ s1_dump_dir }} does not have room for the Postgres dump.
+        postgres usage : {{ s1_pg_usage.stdout.split()[0] }}M
+        dump dir free  : {{ s1_dump_avail.stdout_lines[1] | trim }}
+      The dump needs 100% of current Postgres usage. Point s1_dump_dir at a
+      filesystem with enough space.
+    success_msg: >-
+      Dump space OK: {{ s1_dump_avail.stdout_lines[1] | trim }} free for a
+      {{ s1_pg_usage.stdout.split()[0] }}M database.
+  when: s1_pg_action != 'none'

@@ -1,0 +1,66 @@
+---
+# Derive version, prefix and paths. Everything downstream keys off these.
+
+- name: Derive version from package filename when not set explicitly
+  ansible.builtin.set_fact:
+    s1_version_resolved: >-
+      {{ s1_version if s1_version | length > 0
+         else (s1_package_path | basename | lower
+               | regex_replace('^.*?_([so])_(\d+)_(\d+)_(\d+)_\d+\.tar\.gz$', '\1-\2.\3.\4')
+               | upper) }}
+
+- name: Fail when the version could not be derived
+  ansible.builtin.fail:
+    msg: >-
+      Could not derive a version from '{{ s1_package_path | basename }}'.
+      Set s1_version explicitly, e.g. s1_version: S-25.3.2
+  when: s1_version_resolved is not match('^[SO]-[0-9]+\.[0-9]+\.[0-9]+$')
+
+- name: Set release prefix (S or O)
+  ansible.builtin.set_fact:
+    s1_prefix: "{{ s1_version_resolved[0] }}"
+
+# Guard: the play runs with become=true, so ansible_user_id is 'root'. Falling
+# back to it would extract into /root instead of the SSH user's home.
+- name: Require ansible_user when the install base is not set explicitly
+  ansible.builtin.assert:
+    that: ansible_user is defined and ansible_user | length > 0
+    fail_msg: >-
+      Set ansible_user in the inventory (the account you SSH in as), or set
+      s1_install_base to an absolute path. Without one of the two the package
+      would be extracted into /root.
+  when: s1_install_base | length == 0
+
+- name: Look up the home directory of the connecting user
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ ansible_user }}"
+  when: s1_install_base | length == 0
+
+- name: Resolve install paths
+  ansible.builtin.set_fact:
+    s1_base: >-
+      {{ s1_install_base if s1_install_base | length > 0
+         else ansible_facts.getent_passwd[ansible_user][4] }}
+
+- name: Resolve derived paths
+  ansible.builtin.set_fact:
+    s1_dest: "{{ s1_base }}/{{ s1_version_resolved }}"
+    s1_docker_ansible: "{{ s1_base }}/{{ s1_version_resolved }}/docker_ansible"
+
+# The vendor's ansible-playbook location depends on the release, not just the
+# prefix and OS major, so it cannot be known until offline_installation.sh has
+# run. Honour explicit overrides here; 40_bootstrap.yml discovers the rest.
+- name: Seed the Ansible runtime from explicit overrides, if any
+  ansible.builtin.set_fact:
+    s1_bin: "{{ s1_playbook_bin }}"
+    s1_py: "{{ s1_python_interpreter }}"
+
+- name: Report resolved deployment parameters
+  ansible.builtin.debug:
+    msg:
+      - "version      : {{ s1_version_resolved }} (prefix {{ s1_prefix }})"
+      - "os           : {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      - "extract to   : {{ s1_dest }}"
+      - "playbook bin : {{ s1_bin if s1_bin | length > 0 else '(discovered after bootstrap)' }}"
+      - "interpreter  : {{ s1_py if s1_py | length > 0 else '(discovered after bootstrap)' }}"

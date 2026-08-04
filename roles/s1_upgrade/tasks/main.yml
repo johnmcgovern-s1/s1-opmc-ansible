@@ -1,0 +1,35 @@
+---
+- import_tasks: 00_facts.yml
+  tags: [always]
+
+- import_tasks: 10_preflight.yml
+  tags: [preflight]
+
+# Staging and bootstrap are identical to a clean install: unpack into
+# ~/<VERSION>/ and run the new package's offline_installation.sh.
+- name: Stage the deployment package
+  ansible.builtin.import_role:
+    name: s1_mgmt
+    tasks_from: 20_stage
+  tags: [stage]
+
+- name: Bootstrap Docker, Python and the vendor Ansible
+  ansible.builtin.import_role:
+    name: s1_mgmt
+    tasks_from: 40_bootstrap
+  tags: [bootstrap]
+
+- import_tasks: 40_config.yml
+  tags: [config]
+
+- import_tasks: 50_presteps.yml
+  tags: [presteps]
+
+- import_tasks: 60_deploy.yml
+  tags: [deploy]
+
+- import_tasks: 70_post.yml
+  tags: [post]
+
+- import_tasks: 80_verify.yml
+  tags: [verify]

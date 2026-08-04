@@ -1,0 +1,49 @@
+---
+- name: Confirm the version file now reports the new release
+  ansible.builtin.slurp:
+    src: /s1/version.json
+  register: s1_new_version_raw
+
+- name: Assert the upgrade landed
+  ansible.builtin.assert:
+    that:
+      - (s1_new_version_raw.content | b64decode | from_json).release == s1_version_resolved
+    fail_msg: >-
+      /s1/version.json still reports
+      {{ (s1_new_version_raw.content | b64decode | from_json).release }}
+      rather than {{ s1_version_resolved }}. The upgrade did not complete.
+    success_msg: "Version file now reports {{ s1_version_resolved }}."
+
+# The vendor documents these as expected-broken after an upgrade:
+# incoming-command-processor gets stuck restarting, and the other four report
+# unhealthy by design. Stopping them is the documented recommendation.
+- name: Stop the containers the vendor expects to be broken
+  ansible.builtin.command: "docker stop {{ item }}"
+  loop: "{{ s1_known_unhealthy_containers }}"
+  register: s1_stopped
+  changed_when: s1_stopped.rc == 0
+  failed_when: false
+  when: s1_stop_known_unhealthy | bool
+
+- name: Report which were stopped
+  ansible.builtin.debug:
+    msg: >-
+      Stopped by design (safe to ignore per the vendor docs):
+      {{ s1_stopped.results | default([]) | selectattr('rc', 'eq', 0)
+         | map(attribute='item') | list | join(', ') | default('none', true) }}
+  when: s1_stop_known_unhealthy | bool
+
+- name: Check for containers still running the previous version
+  ansible.builtin.command: docker ps -a --format {{ '{{' }}.Image{{ '}}' }}
+  register: s1_images
+  changed_when: false
+
+- name: Warn when old-version images are still running
+  ansible.builtin.debug:
+    msg: |
+      WARNING: containers still reference the previous version tag
+      ({{ s1_current_tag }}):
+      {{ s1_images.stdout_lines | select('search', s1_current_tag) | list | join('\n') }}
+  when:
+    - s1_current_tag | length > 0
+    - s1_images.stdout_lines | select('search', s1_current_tag) | list | length > 0
