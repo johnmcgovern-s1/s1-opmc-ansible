@@ -2,7 +2,9 @@
 
 A one-shot Ansible playbook that installs the **SentinelOne self-hosted
 (on-premises) Singularity Platform Management Console** (TGZ deployment) on
-Red Hat Enterprise Linux **8.10** and **9.7**.
+Red Hat Enterprise Linux **8.10**, **9.7** and **10.2**. See the
+[test matrix](#test-matrix) for exactly which release runs where — RHEL 10
+takes O-26.1.1 and nothing earlier.
 
 ```bash
 ansible-playbook install.yml --ask-vault-pass                       # clean install
@@ -67,7 +69,8 @@ same prefix on the same OS**:
 | S-25.3.2 | 8 / 9 | `/root/.local/bin/` | `pip3 install --user` as root |
 | O-25.4.4 | 8 / 9 | `/usr/local/bin/` | `pip --prefix=/usr/local` |
 | O-25.4.6+ | 8 | `/usr/local/bin/` | `pip --prefix=/usr/local` |
-| O-25.4.6+ | 9 / 10 | `/opt/sentinelone/installer/bin/` | venv |
+| O-25.4.6+ | 9 | `/opt/sentinelone/installer/bin/` | venv, `python3.11` |
+| O-26.1.1 | 10 | `/opt/sentinelone/installer/bin/` | venv, `python3.12` |
 
 This repo previously kept that as a table keyed on prefix + OS major, which
 cannot express the O-25.4.4 / O-25.4.6 split. It was wrong for O-25.4.4 on
@@ -167,7 +170,8 @@ requirement**. Disk checks are advisory by default; set
   (`ansible-galaxy collection install -r requirements.yml`). For a fully
   air-gapped RHEL 8 target with no repositories, use ansible-core ≤ 2.16 —
   see [Air-gapped operation](#air-gapped-operation).
-- **Target**: RHEL 8.x or 9.x, x86_64, SSH access with passwordless sudo
+- **Target**: RHEL 8.x, 9.x or 10.x, x86_64, SSH access with passwordless sudo.
+  RHEL 10 requires O-26.1.1 or later — see the [test matrix](#test-matrix)
 - **A CPU with AVX** — O-prefix packages ship MongoDB 5.0+, which requires it.
   Proxmox's default `kvm64` model masks AVX; use `host` or `x86-64-v3`.
 - **Memory** — 20+ containers. The playbook defaults to a 16 GB floor and warns
@@ -230,6 +234,66 @@ roles/s1_mgmt/               the install role
 roles/s1_upgrade/            the upgrade role (reuses staging + bootstrap)
 ```
 
+## Test matrix
+
+What has actually been run, and where the vendor packages can be run at all.
+Two different things, so one legend covers both:
+
+| | Meaning |
+|---|---|
+| ✅ | Validated here, end to end, on a live host |
+| 🚧 | Under test right now |
+| ⬜ | The vendor package supports it; this project has not tested it |
+| 🔜 | Not supported yet by these playbooks; on the roadmap |
+| ❌ | The vendor package does not ship an installer for it — `offline_installation.sh` exits with `Error: RHEL <version> is not supported` |
+
+### Release × platform
+
+Support is read from the package itself: the `case $RHEL_VERSION` arms in
+`docker_ansible/rhel/offline_installation.sh` and the
+`docker_ansible/{rhel/rhel*,ubuntu_*}` directories, checked in all four
+tarballs on 2026-08-04.
+
+| Release | RHEL 7 | RHEL 8 | RHEL 9 | RHEL 10 | Ubuntu 14–22 | Ubuntu 24.04 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| S-25.3.2 | ⬜ | ✅ 8.10 | ✅ 9.7 | ❌ | 🔜 | ❌ |
+| O-25.4.4 | ⬜ | ✅ 8.10 | ✅ 9.7 | ❌ | 🔜 | 🔜 |
+| O-25.4.6 | ⬜ | ✅ 8.10 | ✅ 9.7 | ❌ | 🔜 | 🔜 |
+| O-26.1.1 | ⬜ | ✅ 8.10 | ✅ 9.7 | ✅ 10.2 | 🔜 | 🔜 |
+
+### Campaign per host
+
+| Host | OS | Clean install | Upgrade chain | Final state |
+|---|---|---|---|---|
+| s1console | RHEL 8.10 | ✅ S-25.3.2 | ✅ all three hops | O-26.1.1, 21 containers, none down |
+| s1console02 | RHEL 9.7 | ✅ S-25.3.2 | ✅ all three hops | O-26.1.1, 21 containers, none down |
+| rhel03 | RHEL 10.2 | ✅ O-26.1.1 | ❌ not possible | O-26.1.1, 21 containers, none down |
+
+**RHEL 10 takes a clean O-26.1.1 install and nothing else.** RHEL 10 support
+arrives in O-26.1.1 — S-25.3.2, O-25.4.4 and O-25.4.6 have no `10*` arm and
+refuse to install. Since no release that could *precede* O-26.1.1 will run on
+RHEL 10, there is no chain to upgrade along. Both preflights enforce this
+(`s1_min_version_rhel10`), so the failure is a clear message rather than a
+vendor error 20 minutes in.
+
+### Ubuntu
+
+Not supported by these playbooks yet, and the gap is real work rather than a
+flipped flag:
+
+- The vendor ships a complete parallel installer — `docker_ansible/ubuntu_24/`
+  carries its own `install_docker_and_pip.sh`, `install_ansible.sh`, Docker
+  engine `.deb`s and the Ansible/`docker` wheels. Ubuntu 24.04 has been in the
+  package since **O-25.4.4**; 14/18/20/22 go back further.
+- But there is **no `offline_installation.sh` outside `rhel/`**. That script is
+  the dispatcher this project shells out to in `40_bootstrap.yml`, so Ubuntu
+  needs a separate bootstrap path calling the two scripts directly.
+- Preflight also asserts `ansible_distribution == 'RedHat'`, and the Python
+  bootstrap is `dnf`-only.
+
+**24.04 LTS is the intended starting point** when this is picked up — it is the
+only Ubuntu the current release line still ships alongside RHEL 10.
+
 ## Status
 
 Validated end-to-end on **RHEL 8.10 and RHEL 9.7**: a clean install of
@@ -239,6 +303,10 @@ reporting `failed=0` with the console serving HTTPS throughout.
 ```
 S-25.3.2  →  O-25.4.4  →  O-25.4.6  →  O-26.1.1
 ```
+
+**RHEL 10.2** is validated for a clean O-26.1.1 install — `failed=0`, 21
+containers, console serving HTTPS. There is no chain to run there; see
+[RHEL 10.2 notes](#rhel-102-notes).
 
 Exercised against a live host:
 
@@ -273,9 +341,44 @@ allocation failures, but it sat at ~6.9 GB used with ~1.2 GB of swap in play
 throughout. That is a data point, not a recommendation — there was no headroom,
 and nothing here justifies lowering the default floor.
 
+### RHEL 10.2 notes
+
+Clean install of O-26.1.1, `failed=0`, 21 containers up, HTTPS 200. What
+differs from the earlier platforms:
+
+- **Install only, by force.** RHEL 10 support arrives in O-26.1.1, so nothing
+  that could precede it will install — see the [test matrix](#test-matrix).
+  The upgrade role is therefore untested on RHEL 10, and will stay that way
+  until a release ships that O-26.1.1 can upgrade *to*.
+- **No Python bootstrap**, as on RHEL 9 — RHEL 10 ships `python3.12` as
+  `/usr/bin/python3`, and `tasks/bootstrap_python.yml` exits at its first probe.
+- **A fourth vendor runtime layout, discovered without a code change.** The
+  venv is `python3.12`-based:
+
+  ```
+  binary      : /root/.local/bin/ansible-playbook (documented path)
+  interpreter : /opt/sentinelone/installer/bin/python3.12 (from shebang)
+  docker pkg  : importable
+  ```
+
+  This is the case that justifies [reading the runtime off the
+  host](#ansible-runtime--discovered-not-tabulated): a prefix+OS-major table
+  would have needed a new row for RHEL 10, and would have been wrong until
+  someone added it.
+- **The vendor's RHEL 10 reboot condition did not trigger.** `offline_installation.sh`
+  can install missing kernel modules and demand a reboot before the deploy can
+  continue; `40_bootstrap.yml` detects that and stops with instructions. The
+  vendor documents it as mostly affecting AWS Marketplace images, and this
+  host (a standard install) did not hit it — so that guard remains untested.
+
+Like the RHEL 9.7 host, this VM had **7.5 GB RAM and 4 vCPUs**, below both
+floors, run with `-e s1_min_ram_gb=7`. It finished clean but settled at
+~6.9 GB used with ~1.5 GB of swap in play. Same caveat as before: a data point,
+not a recommendation.
+
 **Not yet exercised:** the Postgres 11→15 migration path (`upgrade_postgres` /
-`dump_dir` — every console tested was already on 15), and RHEL 10 /
-`python3.12`.
+`dump_dir` — every console tested was already on 15), any upgrade hop on
+RHEL 10, RHEL 7, and every Ubuntu release.
 
 Behaviour here was derived from the vendor's own `offline_installation.sh`,
 `deploy_mgmt.yml` and `group_vars/all/config.yml`, plus SentinelOne's

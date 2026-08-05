@@ -30,6 +30,24 @@
       documents: OS to a version supported by BOTH releases, then the
       platform, then optionally the OS again.
 
+# The prefix check above is not sufficient for RHEL 10 — O-25.4.4 and
+# O-25.4.6 are O-prefix but have no 10* case. See s1_min_version_rhel10 in
+# roles/s1_mgmt/defaults/main.yml.
+- name: Assert the target release is new enough for RHEL 10
+  ansible.builtin.assert:
+    that:
+      - s1_version_resolved | regex_replace('^[SO]-', '')
+        is version(s1_min_version_rhel10, '>=')
+    fail_msg: >-
+      RHEL 10 support begins at O-{{ s1_min_version_rhel10 }}, so the hop to
+      {{ s1_version_resolved }} cannot run here — its
+      offline_installation.sh would exit with
+      "Error: RHEL {{ ansible_distribution_version }} is not supported".
+
+      In practice no upgrade chain runs on RHEL 10 at all: every release that
+      could precede O-{{ s1_min_version_rhel10 }} refuses to install on it.
+  when: ansible_distribution_major_version == '10'
+
 # /tmp mounted noexec breaks the vendor's pip and Docker installs.
 - name: Check whether /tmp is mounted noexec
   ansible.builtin.command: findmnt -no OPTIONS /tmp

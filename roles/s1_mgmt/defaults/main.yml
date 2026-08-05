@@ -130,8 +130,24 @@ s1_playbook_bin: ""
 s1_python_interpreter: ""
 
 # RHEL majors each prefix supports, from the case statement in
-# docker_ansible/rhel/offline_installation.sh. Used as the upgrade OS gate.
-# RHEL 10 appears only in O-26.1.1 and later.
+# docker_ansible/rhel/offline_installation.sh. The OS gate for both roles.
 s1_supported_rhel_majors:
   S: ["7", "8", "9"]
   O: ["7", "8", "9", "10"]
+
+# Prefix alone is not enough for RHEL 10: it is NOT supported by every
+# O-prefix release. The script was read out of all four tarballs (2026-08-04):
+#
+#   S-25.3.2   case 7*|8*|9*        no rhel10 dir
+#   O-25.4.4   case 7*|8*|9*        no rhel10 dir
+#   O-25.4.6   case 7*|8*|9*        no rhel10 dir
+#   O-26.1.1   case 7*|8*|9*|10*    ships docker_ansible/rhel/rhel10
+#
+# The first three fall through to the default arm and exit with
+# "Error: RHEL 10.2 is not supported" before installing anything. O-26.1.1
+# sets PYTHON_VERSION=3.12 for RHEL 10 and builds the venv at
+# /opt/sentinelone/installer.
+#
+# A consequence worth stating plainly: no upgrade chain can run on RHEL 10,
+# because no release that could precede O-26.1.1 will install there.
+s1_min_version_rhel10: "26.1.1"

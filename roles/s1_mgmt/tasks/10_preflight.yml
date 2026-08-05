@@ -9,13 +9,53 @@
       {{ ansible_distribution_version }}. Set s1_allow_unsupported_os=true to override.
   when: not s1_allow_unsupported_os | bool
 
-- name: Assert the RHEL major version is supported by the vendor installer
+- name: Assert this release supports the RHEL major version
   ansible.builtin.assert:
-    that: ansible_distribution_major_version in ['8', '9']
+    that: ansible_distribution_major_version in s1_supported_rhel_majors[s1_prefix]
     fail_msg: >-
-      offline_installation.sh supports RHEL 7, 8 and 9 only.
-      Found major version {{ ansible_distribution_major_version }}.
+      {{ s1_version_resolved }} does not support RHEL
+      {{ ansible_distribution_major_version }}. offline_installation.sh has no
+      matching arm in its case statement and exits with
+      "Error: RHEL {{ ansible_distribution_version }} is not supported".
+      Supported for the {{ s1_prefix }} prefix:
+      {{ s1_supported_rhel_majors[s1_prefix] | join(', ') }}.
+      Set s1_allow_unsupported_os=true to override.
   when: not s1_allow_unsupported_os | bool
+
+# The vendor map carries "7" because offline_installation.sh still has a 7*
+# arm. Nothing here has ever run on RHEL 7, and it is past end of maintenance,
+# so say so rather than let a green preflight imply support.
+- name: Warn when the target is RHEL 7
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: RHEL 7 is past end of maintenance support and is not tested by
+      this project. The vendor installer still ships a 7* case, so the gate
+      allows it, but the Python bootstrap assumes dnf and the path is entirely
+      unexercised. Treat this run as unsupported.
+  when: ansible_distribution_major_version == '7'
+
+# RHEL 10 needs a version check on top of the prefix check — see the
+# s1_min_version_rhel10 comment in defaults/main.yml.
+- name: Assert the release is new enough for RHEL 10
+  ansible.builtin.assert:
+    that:
+      - s1_version_resolved | regex_replace('^[SO]-', '')
+        is version(s1_min_version_rhel10, '>=')
+    fail_msg: >-
+      RHEL 10 support begins at O-{{ s1_min_version_rhel10 }}.
+      {{ s1_version_resolved }} ships no docker_ansible/rhel/rhel10 directory
+      and offline_installation.sh exits with
+      "Error: RHEL {{ ansible_distribution_version }} is not supported".
+
+      No earlier release installs on RHEL 10 either, so there is no upgrade
+      chain to run here — install O-{{ s1_min_version_rhel10 }} or later
+      directly.
+    success_msg: >-
+      {{ s1_version_resolved }} supports RHEL
+      {{ ansible_distribution_version }} (python3.12, venv runtime).
+  when:
+    - not s1_allow_unsupported_os | bool
+    - ansible_distribution_major_version == '10'
 
 - name: Assert the architecture is x86_64
   ansible.builtin.assert:
