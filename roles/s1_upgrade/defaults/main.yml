@@ -55,11 +55,17 @@ s1_postgres_version_override: ""
 # null (default) leaves the existing value untouched.
 s1_force_legacy_token: null
 
-# The vendor documents these as expected-broken after upgrade and recommends
+# The vendor documents these as unhealthy by design after upgrade and recommends
 # stopping them. They are also excluded from the container health check.
+#
+# incoming-command-processor is handled separately — it restart-loops rather
+# than reporting unhealthy, and only on some releases. It is switched off via
+# sentinelmgmtctl in 70_post, gated on s1_icp_disable_versions, which is defined
+# once in roles/s1_mgmt/defaults/main.yml and reaches this role because 00_facts
+# imports s1_mgmt. Override it in group_vars, not here, so the two roles cannot
+# drift apart.
 s1_stop_known_unhealthy: true
 s1_known_unhealthy_containers:
-  - incoming-command-processor
   - tags-synchronizer
   - mgmt-entities-uploader
   - mgmt-entities-cdc

@@ -14,9 +14,8 @@
       rather than {{ s1_version_resolved }}. The upgrade did not complete.
     success_msg: "Version file now reports {{ s1_version_resolved }}."
 
-# The vendor documents these as expected-broken after an upgrade:
-# incoming-command-processor gets stuck restarting, and the other four report
-# unhealthy by design. Stopping them is the documented recommendation.
+# The vendor documents these four as unhealthy by design after an upgrade.
+# Stopping them is the documented recommendation.
 - name: Stop the containers the vendor expects to be broken
   ansible.builtin.command: "docker stop {{ item }}"
   loop: "{{ s1_known_unhealthy_containers }}"
@@ -24,6 +23,52 @@
   changed_when: s1_stopped.rc == 0
   failed_when: false
   when: s1_stop_known_unhealthy | bool
+
+# --- incoming-command-processor --------------------------------------------
+# Handled separately from the four above. The upgrade article recommends
+# `docker stop incoming-command-processor`, but that does not survive a reboot
+# or a Docker restart. The OVA article (000005150) gives the durable remedy —
+# switch the feature off — with different syntax per prefix:
+#
+#   S: sentinelmgmtctl set_global_switches incoming_command_processor off
+#   O: sentinelmgmtctl set_global_switches --feature incoming_command_processor --value off
+#
+# Gated on release, not applied blanket: product fixed the underlying issue
+# after O-25.4.4, and on later releases a restart-looping ICP is a real failure
+# that should stay visible rather than be switched away.
+- name: Locate sentinelmgmtctl
+  ansible.builtin.command: which sentinelmgmtctl
+  register: s1_up_smctl
+  changed_when: false
+  failed_when: false
+  when:
+    - s1_stop_known_unhealthy | bool
+    - s1_version_resolved in s1_icp_disable_versions
+
+- name: Switch the incoming-command-processor feature off
+  ansible.builtin.command: >-
+    {{ s1_up_smctl.stdout | trim }} set_global_switches
+    {{ 'incoming_command_processor off'
+       if s1_prefix == 'S'
+       else '--feature incoming_command_processor --value off' }}
+  register: s1_up_icp_off
+  changed_when: s1_up_icp_off.rc == 0
+  failed_when: false
+  when:
+    - s1_stop_known_unhealthy | bool
+    - s1_version_resolved in s1_icp_disable_versions
+    - (s1_up_smctl.rc | default(1)) == 0
+
+- name: Report the incoming-command-processor switch
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'incoming_command_processor switched off for ' ~ s1_version_resolved
+         if (s1_up_icp_off is defined and (s1_up_icp_off.rc | default(1)) == 0)
+         else 'WARNING: could not switch incoming_command_processor off: '
+              ~ (s1_up_icp_off.stderr | default('sentinelmgmtctl not found on PATH', true)) }}
+  when:
+    - s1_stop_known_unhealthy | bool
+    - s1_version_resolved in s1_icp_disable_versions
 
 - name: Report which were stopped
   ansible.builtin.debug:

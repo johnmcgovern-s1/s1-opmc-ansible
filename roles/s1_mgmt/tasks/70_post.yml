@@ -41,6 +41,50 @@
   failed_when: false
   when: s1_flt is defined and s1_flt is changed
 
+# --- incoming-command-processor --------------------------------------------
+# On the releases listed in s1_icp_disable_versions this container restart-loops
+# after deployment. The vendor remedy is to switch the feature off; the flag
+# syntax differs between prefixes (articles 000005150 and 000005155):
+#
+#   S: sentinelmgmtctl set_global_switches incoming_command_processor off
+#   O: sentinelmgmtctl set_global_switches --feature incoming_command_processor --value off
+#
+# This replaces `docker stop incoming-command-processor`, which the upgrade
+# article gives but which does not survive a reboot or a Docker restart.
+- name: Locate sentinelmgmtctl
+  ansible.builtin.command: which sentinelmgmtctl
+  register: s1_smctl
+  changed_when: false
+  failed_when: false
+  when:
+    - s1_icp_disable | bool
+    - s1_version_resolved in s1_icp_disable_versions
+
+- name: Switch the incoming-command-processor feature off
+  ansible.builtin.command: >-
+    {{ s1_smctl.stdout | trim }} set_global_switches
+    {{ 'incoming_command_processor off'
+       if s1_prefix == 'S'
+       else '--feature incoming_command_processor --value off' }}
+  register: s1_icp_off
+  changed_when: s1_icp_off.rc == 0
+  failed_when: false
+  when:
+    - s1_icp_disable | bool
+    - s1_version_resolved in s1_icp_disable_versions
+    - (s1_smctl.rc | default(1)) == 0
+
+- name: Report the incoming-command-processor switch
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'incoming_command_processor switched off for ' ~ s1_version_resolved
+         if (s1_icp_off is defined and (s1_icp_off.rc | default(1)) == 0)
+         else 'WARNING: could not switch incoming_command_processor off: '
+              ~ (s1_icp_off.stderr | default('sentinelmgmtctl not found on PATH', true)) }}
+  when:
+    - s1_icp_disable | bool
+    - s1_version_resolved in s1_icp_disable_versions
+
 - name: Note that no_proxy configuration was skipped
   ansible.builtin.debug:
     msg: >-

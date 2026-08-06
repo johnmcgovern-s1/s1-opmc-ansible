@@ -96,14 +96,40 @@ s1_min_ram_gb: 16      # hard floor — below this the deploy will not complete
 s1_rec_ram_gb: 32      # recommended
 s1_rec_vcpus: 8
 
-# Containers the vendor documents as expected-broken. Excluded from the health
-# check so a clean install does not report false failures.
+# Containers the vendor documents as unhealthy by design. Excluded from the
+# health check so a clean install does not report false failures.
+#
+# incoming-command-processor is deliberately NOT here: it is a restart loop
+# rather than an unhealthy check, it is release-specific, and excusing it on
+# every release would hide a real failure. It is excluded only on the releases
+# in s1_icp_disable_versions below.
 s1_known_unhealthy_containers:
-  - incoming-command-processor
   - tags-synchronizer
   - mgmt-entities-uploader
   - mgmt-entities-cdc
   - ranger-fingerprint-consumer
+
+# --- incoming-command-processor --------------------------------------------
+# Releases on which ICP restart-loops after deployment and the feature should
+# be switched off. Product confirmed the underlying issue was fixed after
+# O-25.4.4, so later releases are deliberately NOT listed: a restart-looping
+# ICP there is a real failure and should stay visible.
+#
+# Note what the vendor articles do and do not say. They give two command forms
+# and scope them by PREFIX (S vs O), not by release, and they phrase the remedy
+# as "after you upgrade" — they never state which releases are affected. The
+# release list below is product knowledge, not something the articles assert.
+s1_icp_disable: true
+s1_icp_disable_versions:
+  - S-25.3.2
+  - O-25.4.4
+
+# How long 80_verify waits for container health checks to settle before judging
+# them. Containers come up in "health: starting" and some take minutes to pass
+# their first check, so a snapshot taken straight after the deploy reports a
+# healthy install as broken. Defaults give up to 5 minutes.
+s1_verify_retries: 30
+s1_verify_delay: 10
 
 # ============================================================================
 # Ansible runtime — discovered from the host, not hardcoded

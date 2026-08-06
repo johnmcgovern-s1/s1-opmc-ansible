@@ -1,21 +1,54 @@
 ---
-- name: List all containers
+# Built before the container listing because the wait below needs it. ICP joins
+# the expected-broken set only on the releases where it is known to restart-loop.
+- name: Build the expected-broken list for this release
+  ansible.builtin.set_fact:
+    s1_up_expected_broken: >-
+      {{ s1_known_unhealthy_containers
+         + (['incoming-command-processor']
+            if s1_version_resolved in s1_icp_disable_versions else []) }}
+
+# Wait for the container set to settle before judging it — see the equivalent
+# comment in the install role. An early snapshot reports a good deployment as
+# broken (containers still in "health: starting") or a broken one as good (read
+# during a restart cycle). failed_when is off so a host that never settles still
+# reaches the reports below.
+- name: List all containers, waiting for health checks to settle
   ansible.builtin.command: docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}'
   register: s1_up_ps
   changed_when: false
+  failed_when: false
+  retries: "{{ s1_verify_retries }}"
+  delay: "{{ s1_verify_delay }}"
+  # One folded string, not a list: unlike `when`, `until` rejects a list of
+  # conditions with "Conditional expressions must be strings".
+  until: >-
+    (s1_up_ps.stdout_lines | reject('search', '\tUp')
+     | reject('search', '^(' ~ (s1_up_expected_broken | join('|')) ~ ')\t')
+     | list | length == 0)
+    and (s1_up_ps.stdout_lines | select('search', '\(unhealthy\)')
+     | reject('search', '^(' ~ (s1_up_expected_broken | join('|')) ~ ')\t')
+     | list | length == 0)
+    and (s1_up_ps.stdout_lines | select('search', '\(health: starting\)')
+     | list | length == 0)
 
 - name: Show container status
   ansible.builtin.debug:
     var: s1_up_ps.stdout_lines
 
-# Exclude the containers the vendor documents as expected-broken, otherwise
-# every successful upgrade reports false failures.
+# Down and unhealthy are separate failure shapes. "Up 5 minutes (unhealthy)"
+# contains "Up", so matching on Up alone silently passes an unhealthy container.
 - name: Identify unexpectedly stopped containers
   ansible.builtin.set_fact:
     s1_up_down: >-
       {{ s1_up_ps.stdout_lines
          | reject('search', '\tUp')
-         | reject('search', '^(' ~ (s1_known_unhealthy_containers | join('|')) ~ ')\t')
+         | reject('search', '^(' ~ (s1_up_expected_broken | join('|')) ~ ')\t')
+         | list }}
+    s1_up_unhealthy: >-
+      {{ s1_up_ps.stdout_lines
+         | select('search', '\(unhealthy\)')
+         | reject('search', '^(' ~ (s1_up_expected_broken | join('|')) ~ ')\t')
          | list }}
 
 - name: Report containers that are not running
@@ -25,6 +58,15 @@
       {{ s1_up_down | join('\n') }}
       Try: systemctl restart docker
   when: s1_up_down | length > 0
+
+- name: Report containers that are Up but unhealthy
+  ansible.builtin.debug:
+    msg: |
+      WARNING: these containers are Up but report unhealthy, and are not on the
+      expected-broken list for {{ s1_version_resolved }}:
+      {{ s1_up_unhealthy | join('\n') }}
+      Check their logs before treating this upgrade as good.
+  when: s1_up_unhealthy | length > 0
 
 # validate_certs is off deliberately: this is a liveness probe run from the
 # console host itself, where s1_accessible_url may not resolve to a name the
@@ -47,7 +89,7 @@
     msg:
       - "upgraded   : {{ s1_current_version }} -> {{ s1_version_resolved }}"
       - "postgres   : {{ s1_pg_action }}{{ ' (dump dir ' ~ s1_dump_dir ~ ')' if s1_pg_action != 'none' else '' }}"
-      - "containers : {{ s1_up_ps.stdout_lines | length }} total, {{ s1_up_down | length }} unexpectedly down"
+      - "containers : {{ s1_up_ps.stdout_lines | length }} total, {{ s1_up_down | length }} unexpectedly down, {{ s1_up_unhealthy | length }} unexpectedly unhealthy"
       - "console    : {{ s1_up_http.status | default('not checked') }}"
       - "next hop   : {{ s1_upgrade_order[s1_upgrade_order.index(s1_version_resolved) + 1] if (s1_version_resolved in s1_upgrade_order and s1_upgrade_order.index(s1_version_resolved) + 1 < s1_upgrade_order | length) else 'none — latest supported version' }}"
       - "reminder   : verify Help > About in the console (SHIFT+F5 for a hard refresh)"

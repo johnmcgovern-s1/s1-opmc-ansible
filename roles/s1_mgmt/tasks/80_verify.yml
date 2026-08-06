@@ -1,27 +1,72 @@
 ---
-- name: List all containers
+# Four containers report unhealthy by design on every release. ICP is different:
+# it restart-loops only on the releases in s1_icp_disable_versions, which 70_post
+# switches off. On every other release a restart-looping ICP is a real failure
+# and must stay visible — product fixed the underlying issue after O-25.4.4.
+#
+# Built before the container listing because the wait below needs it.
+- name: Build the expected-broken list for this release
+  ansible.builtin.set_fact:
+    s1_expected_broken: >-
+      {{ s1_known_unhealthy_containers
+         + (['incoming-command-processor']
+            if s1_version_resolved in s1_icp_disable_versions else []) }}
+
+# Wait for the container set to settle before judging it. A single snapshot taken
+# right after the deploy is not evidence either way: containers are still in
+# "health: starting", so an early read reports a good install as broken (seen on
+# RHEL 9.7, where task-infra was unhealthy at ~1 min and healthy by ~10 min), and
+# an unlucky read during a restart cycle reports a broken one as good.
+#
+# Settled means: nothing unexpectedly down, nothing unexpectedly unhealthy, and
+# no health check still starting. failed_when is off so that a host which never
+# settles still falls through to the reports below and says what is wrong,
+# rather than dying here with a bare "until" failure.
+- name: List all containers, waiting for health checks to settle
   ansible.builtin.command: docker ps -a --format '{{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Status{{ "}}" }}'
   register: s1_ps
   changed_when: false
+  failed_when: false
+  retries: "{{ s1_verify_retries }}"
+  delay: "{{ s1_verify_delay }}"
+  # One folded string, not a list: unlike `when`, `until` rejects a list of
+  # conditions with "Conditional expressions must be strings".
+  until: >-
+    (s1_ps.stdout_lines | reject('search', '\tUp')
+     | reject('search', '^(' ~ (s1_expected_broken | join('|')) ~ ')\t')
+     | list | length == 0)
+    and (s1_ps.stdout_lines | select('search', '\(unhealthy\)')
+     | reject('search', '^(' ~ (s1_expected_broken | join('|')) ~ ')\t')
+     | list | length == 0)
+    and (s1_ps.stdout_lines | select('search', '\(health: starting\)')
+     | list | length == 0)
 
 - name: Show container status
   ansible.builtin.debug:
     var: s1_ps.stdout_lines
 
-# incoming-command-processor restart-loops by design after a fresh install, and
-# four others report unhealthy on purpose. Excluding them keeps a clean install
-# from reporting false failures. Confirmed on S-25.3.2.
+# Two distinct failure shapes, and checking only the first is not enough.
+# A container can be down (or restart-looping), or it can be Up and reporting
+# unhealthy. "Up 5 minutes (unhealthy)" contains the string "Up", so a match on
+# Up alone passes it. That matters most for incoming-command-processor: with the
+# feature switched off it settles at Up (unhealthy), so on the releases where it
+# is NOT excused, an unhealthy ICP has to surface or the check proves nothing.
 - name: Identify containers that are not Up
   ansible.builtin.set_fact:
     s1_down: >-
       {{ s1_ps.stdout_lines
          | reject('search', '\tUp')
-         | reject('search', '^(' ~ (s1_known_unhealthy_containers | join('|')) ~ ')\t')
+         | reject('search', '^(' ~ (s1_expected_broken | join('|')) ~ ')\t')
          | list }}
     s1_expected_down: >-
       {{ s1_ps.stdout_lines
          | reject('search', '\tUp')
-         | select('search', '^(' ~ (s1_known_unhealthy_containers | join('|')) ~ ')\t')
+         | select('search', '^(' ~ (s1_expected_broken | join('|')) ~ ')\t')
+         | list }}
+    s1_unhealthy: >-
+      {{ s1_ps.stdout_lines
+         | select('search', '\(unhealthy\)')
+         | reject('search', '^(' ~ (s1_expected_broken | join('|')) ~ ')\t')
          | list }}
 
 - name: Note containers that are down by design
@@ -38,6 +83,15 @@
       {{ s1_down | join('\n') }}
       Try: systemctl restart docker
   when: s1_down | length > 0
+
+- name: Report containers that are Up but unhealthy
+  ansible.builtin.debug:
+    msg: |
+      WARNING: these containers are Up but report unhealthy, and are not on the
+      expected-broken list for {{ s1_version_resolved }}:
+      {{ s1_unhealthy | join('\n') }}
+      Check their logs before treating this install as good.
+  when: s1_unhealthy | length > 0
 
 # validate_certs is off deliberately: this is a liveness probe run from the
 # console host itself, where s1_accessible_url may not resolve to a name the
@@ -59,6 +113,6 @@
     msg:
       - "version    : {{ s1_version_resolved }}"
       - "installed  : {{ s1_dest }}"
-      - "containers : {{ (s1_ps.stdout_lines | length) }} total, {{ s1_down | length }} unexpectedly down, {{ s1_expected_down | length }} down by design"
+      - "containers : {{ (s1_ps.stdout_lines | length) }} total, {{ s1_down | length }} unexpectedly down, {{ s1_unhealthy | length }} unexpectedly unhealthy, {{ s1_expected_down | length }} down by design"
       - "console    : {{ s1_accessible_url }} -> {{ s1_http.status | default('no response') }}"
       - "next       : log in and check Help > About for the version (SHIFT+F5 for a hard refresh)"

@@ -236,8 +236,8 @@ roles/s1_upgrade/            the upgrade role (reuses staging + bootstrap)
 
 ## Test matrix
 
-What has actually been run, and where the vendor packages can be run at all.
-Two different things, so one legend covers both:
+What has actually been run, and where the vendor packages can be run at all —
+two different things, so the status legend covers both:
 
 | | Meaning |
 |---|---|
@@ -246,6 +246,14 @@ Two different things, so one legend covers both:
 | ⬜ | The vendor package supports it; this project has not tested it |
 | 🔜 | Not supported yet by these playbooks; on the roadmap |
 | ❌ | The vendor package does not ship an installer for it — `offline_installation.sh` exits with `Error: RHEL <version> is not supported` |
+
+A ✅ also records **how** that release was reached, because the two routes run
+different code and are not interchangeable:
+
+| | Route |
+|---|---|
+| **(I)** | Clean install — `install.yml` against a bare host |
+| **(U)** | Reached by upgrading from the release above it — `upgrade.yml` |
 
 ### Release × platform
 
@@ -256,10 +264,18 @@ tarballs on 2026-08-04.
 
 | Release | RHEL 7 | RHEL 8 | RHEL 9 | RHEL 10 | Ubuntu 14–22 | Ubuntu 24.04 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| S-25.3.2 | ⬜ | ✅ 8.10 | ✅ 9.7 | ❌ | 🔜 | ❌ |
-| O-25.4.4 | ⬜ | ✅ 8.10 | ✅ 9.7 | ❌ | 🔜 | 🔜 |
-| O-25.4.6 | ⬜ | ✅ 8.10 | ✅ 9.7 | ❌ | 🔜 | 🔜 |
-| O-26.1.1 | ⬜ | ✅ 8.10 | ✅ 9.7 | ✅ 10.2 | 🔜 | 🔜 |
+| S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ❌ |
+| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | 🔜 |
+| O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | 🔜 |
+| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | 🔜 |
+
+The **(I)** / **(U)** markers show that on **RHEL 8 and RHEL 9 every release has
+been validated by both routes** — clean-installed directly onto a bare host, and
+also reached by upgrading from S-25.3.2. That matters because installing the
+current release directly is the likelier customer path, and it exercises
+different code: the install and upgrade roles use separate config stages with
+different `mount_dir` handling. RHEL 10 is install-only because no release that
+could precede O-26.1.1 runs there.
 
 ### Campaign per host
 
@@ -268,6 +284,18 @@ tarballs on 2026-08-04.
 | s1console | RHEL 8.10 | ✅ S-25.3.2 | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | s1console02 | RHEL 9.7 | ✅ S-25.3.2 | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | rhel03 | RHEL 10.2 | ✅ O-26.1.1 | ❌ not possible | O-26.1.1, 21 containers, none down |
+| rhel01 | RHEL 8.10 | ✅ all four releases | — not run | each verified independently, none down |
+| rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
+
+`rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
+onto a host reverted to the same clean snapshot beforehand, so each result stands
+on its own rather than inheriting state from the release before it. Container
+counts fall identically on both platforms as the vendor retires components — 26
+for S-25.3.2, 25 for O-25.4.4, then 21 for both O-25.4.6 and O-26.1.1.
+
+`rhel02` then ran the **upgrade chain separately**, from a fresh S-25.3.2 install
+through all three hops, snapshotting between each. So RHEL 9.7 has both routes
+validated independently on the same host at the same specification.
 
 **RHEL 10 takes a clean O-26.1.1 install and nothing else.** RHEL 10 support
 arrives in O-26.1.1 — S-25.3.2, O-25.4.4 and O-25.4.6 have no `10*` arm and
@@ -294,6 +322,92 @@ flipped flag:
 **24.04 LTS is the intended starting point** when this is picked up — it is the
 only Ubuntu the current release line still ships alongside RHEL 10.
 
+## Roadmap
+
+Ordered by value, not by effort.
+
+### 1. Ubuntu 24.04 LTS — install and upgrade
+
+Support the platform (see [Ubuntu](#ubuntu) for the four blockers), then run a
+full campaign against it.
+
+**The chain cannot start at S-25.3.2.** That package ships `ubuntu_14` through
+`ubuntu_22` but no `ubuntu_24`, so 24.04 hits the same wall RHEL 10 does. The
+first release carrying `ubuntu_24` is **O-25.4.4**, which makes the campaign:
+
+```
+O-25.4.4 (clean install)  →  O-25.4.6  →  O-26.1.1
+```
+
+Two real hops, unlike RHEL 10 — enough to exercise the upgrade role on a
+non-RHEL platform, including runtime discovery across a vendor layout change.
+Worth checking early: `/root/.local/bin/ansible-playbook` is a RHEL
+backward-compatibility symlink the vendor creates deliberately, and there is no
+guarantee the Ubuntu scripts create it. If they do not, discovery needs a
+different documented path — that is the failure that bit the O-25.4.4 hop on
+RHEL 9.
+
+The clean install of O-25.4.4 here also doubles as a straight-to-version test
+below, on a platform that has not had one.
+
+### 2. Straight-to-version installs
+
+**Done.** All four releases have been clean-installed on both RHEL 8.10 and
+RHEL 9.7 — eight installs, each onto a host reverted to a fresh snapshot first,
+all `failed=0` with the console serving HTTPS. This was worth doing because a
+straight install is the more common real-world path: a new customer installs
+whatever is current rather than installing a year-old release and chaining
+forward.
+
+The paths differ enough that they needed testing rather than assuming:
+
+- `50_config.yml` edits a pristine vendor `config.yml`, and it has only ever
+  done that for an S-prefix package on those platforms. The upgrade role uses
+  `40_config.yml`, a different file with different `mount_dir` handling.
+- Install sets `mount_dir` and lets the vendor derive the data paths; upgrade
+  deliberately leaves it empty and sets `postgres_dir` / `mongo_dir` explicitly.
+- The S-prefix and O-prefix branches in preflight and bootstrap (AVX, the
+  `python38` opt-in, MongoDB 4.4 vs 5.0) are selected differently.
+
+All of those paths are now exercised on both platforms, including straight
+installs of the two intermediate releases, which had never been installed
+directly anywhere. Nothing in this item remains outstanding; it is kept here as
+a record of what the gap was and why it mattered.
+
+### 3. The RHEL 10 kernel-reboot guard
+
+`40_bootstrap.yml` carries a guard that has never been triggered on a live host
+— `source review` evidence, not `observed`.
+
+On RHEL 10, `offline_installation.sh` checks for kernel modules before
+installing `docker-ce` (RHEL 10's `iptables-nft` has a conditional dependency on
+`kernel-modules-extra` that cannot resolve from an offline repo). If they are
+missing it installs four bundled RPMs from
+`docker_ansible/rhel/rhel10/kernel_modules/`, prints
+`KERNEL UPDATE INSTALLED - REBOOT REQUIRED.` — and then **exits 0**.
+
+That exit code is the whole problem. A success-looking return would carry the
+play on to the vendor deploy against a host with no Docker, so the guard matches
+on stdout instead:
+
+```yaml
+when: "'REBOOT REQUIRED' in (s1_bootstrap_docker.stdout | default(''))"
+```
+
+**Testing it needs a cloud instance.** The vendor documents this as mostly
+affecting AWS Marketplace RHEL 10 images; standard installs on Nutanix or bare
+metal ship the modules and never trigger it, which is why `rhel03` did not.
+Verify both halves: the play stops at bootstrap with the reboot message, and a
+re-run after `sudo reboot` completes. Being a substring match, it would also
+fail quietly if the vendor ever rewords the banner — worth re-checking against
+each new release.
+
+### Not planned
+
+RHEL 7 (past end of maintenance — preflight warns), Ubuntu 14 through 22, and
+the Postgres 11→15 migration path, which needs a console old enough to still be
+on Postgres 11.
+
 ## Status
 
 Validated end-to-end on **RHEL 8.10 and RHEL 9.7**: a clean install of
@@ -307,6 +421,12 @@ S-25.3.2  →  O-25.4.4  →  O-25.4.6  →  O-26.1.1
 **RHEL 10.2** is validated for a clean O-26.1.1 install — `failed=0`, 21
 containers, console serving HTTPS. There is no chain to run there; see
 [RHEL 10.2 notes](#rhel-102-notes).
+
+**RHEL 8.10 and RHEL 9.7** additionally have every release validated as a
+*straight* clean install, not only as an upgrade target: S-25.3.2, O-25.4.4,
+O-25.4.6 and O-26.1.1 were each installed onto a host reverted to a fresh
+snapshot beforehand — eight installs in total, all reporting `failed=0` with the
+console serving HTTPS.
 
 Exercised against a live host:
 
@@ -335,11 +455,9 @@ Two things differ from RHEL 8.10, both already handled:
   [Ansible runtime](#ansible-runtime--discovered-not-tabulated). This is
   invisible on RHEL 8, where every O release uses `/usr/local/bin`.
 
-The RHEL 9.7 host had **7.5 GB RAM**, below the 16 GB floor, run deliberately
-with `-e s1_min_ram_gb=7`. Install and all three hops completed with no
-allocation failures, but it sat at ~6.9 GB used with ~1.2 GB of swap in play
-throughout. That is a data point, not a recommendation — there was no headroom,
-and nothing here justifies lowering the default floor.
+Everything recorded above for RHEL 9.7 — the four clean installs and the full
+upgrade chain — was run at the playbook's unmodified defaults, with no
+overrides of any kind.
 
 ### RHEL 10.2 notes
 
@@ -371,14 +489,18 @@ differs from the earlier platforms:
   vendor documents it as mostly affecting AWS Marketplace images, and this
   host (a standard install) did not hit it — so that guard remains untested.
 
-Like the RHEL 9.7 host, this VM had **7.5 GB RAM and 4 vCPUs**, below both
-floors, run with `-e s1_min_ram_gb=7`. It finished clean but settled at
-~6.9 GB used with ~1.5 GB of swap in play. Same caveat as before: a data point,
-not a recommendation.
+This VM had **7.5 GB RAM and 4 vCPUs**, below both floors, run with
+`-e s1_min_ram_gb=7`. It finished clean but settled at ~6.9 GB used with
+~1.5 GB of swap in play. That is a data point, not a recommendation — there was
+no headroom, and nothing here justifies lowering the default floor. RHEL 8.10
+and RHEL 9.7 have since been re-validated at 16 GB against unmodified defaults;
+RHEL 10.2 has not.
 
 **Not yet exercised:** the Postgres 11→15 migration path (`upgrade_postgres` /
 `dump_dir` — every console tested was already on 15), any upgrade hop on
-RHEL 10, RHEL 7, and every Ubuntu release.
+RHEL 10, RHEL 7, and every Ubuntu release. The [Roadmap](#roadmap) says which of
+those are being picked up
+and in what order.
 
 Behaviour here was derived from the vendor's own `offline_installation.sh`,
 `deploy_mgmt.yml` and `group_vars/all/config.yml`, plus SentinelOne's
