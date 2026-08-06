@@ -1,11 +1,12 @@
 ---
 # Fail fast, before anything on the host is modified.
 
-- name: Assert the OS is Red Hat Enterprise Linux
+- name: Assert the OS is one this playbook supports
   ansible.builtin.assert:
-    that: ansible_distribution == 'RedHat'
+    that:
+      - ansible_distribution == 'RedHat' or ansible_distribution == 'Ubuntu'
     fail_msg: >-
-      This playbook targets RHEL. Found {{ ansible_distribution }}
+      This playbook targets RHEL and Ubuntu. Found {{ ansible_distribution }}
       {{ ansible_distribution_version }}. Set s1_allow_unsupported_os=true to override.
   when: not s1_allow_unsupported_os | bool
 
@@ -20,7 +21,47 @@
       Supported for the {{ s1_prefix }} prefix:
       {{ s1_supported_rhel_majors[s1_prefix] | join(', ') }}.
       Set s1_allow_unsupported_os=true to override.
-  when: not s1_allow_unsupported_os | bool
+  when:
+    - not s1_allow_unsupported_os | bool
+    - ansible_distribution == 'RedHat'
+
+# Gated on the release, checked before staging. Note this is NOT simply "does
+# ubuntu_24 ship" — O-25.4.4 ships it and still cannot deploy. See the
+# s1_min_version_ubuntu24 comment in defaults/main.yml.
+- name: Assert this release can actually deploy on Ubuntu 24.04
+  ansible.builtin.assert:
+    that:
+      - s1_prefix == 'O'
+      - s1_version_resolved | regex_replace('^[SO]-', '')
+        is version(s1_min_version_ubuntu24, '>=')
+    fail_msg: |
+      {{ s1_version_resolved }} cannot complete a deploy on Ubuntu 24.04.
+      Install O-{{ s1_min_version_ubuntu24 }} or later on this platform.
+
+      S-25.3.2 ships no docker_ansible/{{ s1_ubuntu_tooling }} directory at all.
+
+      O-25.4.4 does ship it, and bootstraps cleanly — but deploy_mgmt.yml calls
+      bare `python` ("Create default UUID"), which does not exist on Ubuntu
+      24.04. O-25.4.6 bundles python-is-python3, which creates the symlink; the
+      O-25.4.4 bundle does not, so it fails ~2 minutes into the deploy.
+    success_msg: >-
+      {{ s1_version_resolved }} deploys on Ubuntu 24.04.
+  when:
+    - not s1_allow_unsupported_os | bool
+    - ansible_distribution == 'Ubuntu'
+    - ansible_distribution_major_version == '24'
+
+- name: Fail on an Ubuntu release this playbook has not been built for
+  ansible.builtin.fail:
+    msg: >-
+      Ubuntu {{ ansible_distribution_version }} is not supported here. Only
+      24.04 is wired up ({{ s1_ubuntu_tooling }}); the older ubuntu_14/18/20/22
+      trees ship no usable offline path. Set s1_allow_unsupported_os=true to
+      attempt it anyway.
+  when:
+    - not s1_allow_unsupported_os | bool
+    - ansible_distribution == 'Ubuntu'
+    - ansible_distribution_major_version != '24'
 
 # The vendor map carries "7" because offline_installation.sh still has a 7*
 # arm. Nothing here has ever run on RHEL 7, and it is past end of maintenance,

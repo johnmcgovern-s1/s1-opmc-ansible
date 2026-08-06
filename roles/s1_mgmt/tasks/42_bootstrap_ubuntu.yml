@@ -1,0 +1,59 @@
+---
+# Ubuntu bootstrap. There is no offline_installation.sh outside
+# docker_ansible/rhel/, and ubuntu_24 ships no install_everything.sh either, so
+# the two vendor scripts are invoked directly and in order.
+#
+# The offline/online argument is passed EXPLICITLY to both, always, because they
+# interpret it inversely (PKG-008): install_ansible.sh treats anything that is
+# not "false" as offline, while install_docker_and_pip.sh treats anything that
+# is not "true" as online. They agree only on those two exact strings — an empty
+# or unexpected value installs Ansible from the bundled wheels while Docker
+# reaches for download.docker.com, which fails on an air-gapped host and
+# silently installs from the internet on a connected one.
+
+- name: Locate the Ubuntu tooling directory in this package
+  ansible.builtin.stat:
+    path: "{{ s1_ubuntu_dir }}"
+  register: s1_ubuntu_stat
+
+- name: Fail when this package ships no Ubuntu tooling
+  ansible.builtin.fail:
+    msg: |
+      {{ s1_ubuntu_dir }} does not exist in {{ s1_version_resolved }}.
+
+      Ubuntu 24.04 tooling arrives in O-25.4.4; earlier packages ship no
+      ubuntu_24 directory and cannot be installed on this platform.
+  when: not s1_ubuntu_stat.stat.exists
+
+- name: Ensure the Ubuntu vendor scripts are executable
+  ansible.builtin.file:
+    path: "{{ s1_ubuntu_dir }}/{{ item }}"
+    mode: "0755"
+  loop:
+    - install_docker_and_pip.sh
+    - install_ansible.sh
+
+- name: Install docker-ce and pip
+  ansible.builtin.command: >-
+    ./install_docker_and_pip.sh
+    {{ 'true' if s1_offline_install | bool else 'false' }}
+  args:
+    chdir: "{{ s1_ubuntu_dir }}"
+  register: s1_ubuntu_docker
+  changed_when: true
+
+- name: Install the vendor-pinned Ansible (Ubuntu)
+  ansible.builtin.command: >-
+    ./install_ansible.sh
+    {{ 'true' if s1_offline_install | bool else 'false' }}
+  args:
+    chdir: "{{ s1_ubuntu_dir }}"
+  register: s1_ubuntu_ansible
+  changed_when: true
+
+- name: Ensure the Docker daemon is enabled and running
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+    daemon_reload: true

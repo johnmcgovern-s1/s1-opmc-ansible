@@ -1,69 +1,42 @@
 ---
-# Installs docker-ce, pip, the docker python package and the vendor's pinned
-# Ansible. Entirely offline: offline_installation.sh writes its own
-# /etc/yum.repos.d/sentinelone.repo pointing at file://.../rhel{8,9} and runs
-# every dnf call with --disablerepo=* --enablerepo=sentinelone. Neither RHSM
-# nor the DVD is consulted.
+# Installs docker-ce, pip, the docker Python package and the vendor's pinned
+# Ansible, then resolves the runtime that 60_deploy.yml will shell out to.
+#
+# The install itself is per-OS because the vendor ships two entirely separate
+# mechanisms: RHEL has an offline_installation.sh dispatcher, Ubuntu has two
+# standalone scripts and no dispatcher at all. Everything after that — locating
+# ansible-playbook and deriving its interpreter — is shared, because the
+# mechanism (resolve the binary, read its shebang) holds on both.
 
-- name: Remove podman packages that conflict with docker-ce
-  ansible.builtin.dnf:
-    name:
-      - podman
-      - podman-manpages
-      - buildah
-    state: absent
-    disablerepo: "*"
-  failed_when: false
+- name: Bootstrap the vendor tooling (RHEL)
+  ansible.builtin.import_tasks: 41_bootstrap_rhel.yml
+  when: ansible_os_family == 'RedHat'
 
-# Optional and off by default. The bundled repo ships python36 (S) or
-# python3.11 (O) — never python38 — so this needs RHSM or a DVD repo.
-- name: Install Python 3.8 from an external repo (S-prefix, RHEL 8, opt-in)
-  ansible.builtin.dnf:
-    name: python38
-    state: present
-  when:
-    - s1_install_python38 | bool
-    - s1_prefix == 'S'
-    - ansible_distribution_major_version == '8'
-
-- name: Install docker-ce, pip and the docker python package
-  ansible.builtin.command: ./offline_installation.sh install_docker_and_pip
-  args:
-    chdir: "{{ s1_docker_ansible }}/rhel"
-  register: s1_bootstrap_docker
-  changed_when: true
-
-- name: Detect the RHEL 10 kernel-reboot condition
-  ansible.builtin.fail:
-    msg: >-
-      offline_installation.sh reported KERNEL UPDATE INSTALLED - REBOOT REQUIRED.
-      Reboot the server and re-run this playbook.
-  when: "'REBOOT REQUIRED' in (s1_bootstrap_docker.stdout | default(''))"
-
-# For O-prefix this is already done inside install_docker_and_pip; re-running is
-# harmless (pip --upgrade). For S-prefix it is a required second step.
-- name: Install the vendor-pinned Ansible
-  ansible.builtin.command: ./offline_installation.sh install_ansible
-  args:
-    chdir: "{{ s1_docker_ansible }}/rhel"
-  changed_when: true
-
-- name: Ensure the Docker daemon is enabled and running
-  ansible.builtin.systemd:
-    name: docker
-    state: started
-    enabled: true
-    daemon_reload: true
+- name: Bootstrap the vendor tooling (Ubuntu)
+  ansible.builtin.import_tasks: 42_bootstrap_ubuntu.yml
+  when: ansible_os_family == 'Debian'
 
 # --- Resolve the vendor Ansible runtime -------------------------------------
 # Read off the host rather than from a table. The real binary moves between
-# releases — and between releases sharing a prefix on the same OS — but every
-# release examined creates /root/.local/bin/ansible-playbook for backward
-# compatibility, because the vendor docs tell customers to invoke that path.
+# releases — and between releases sharing a prefix on the same OS — but each
+# platform has a stable path to start from:
+#
+#   RHEL   /root/.local/bin/ansible-playbook   created deliberately by every
+#                                              release "for backward
+#                                              compatibility"
+#   Ubuntu /usr/local/bin/ansible-playbook     where pip lands the entry point;
+#                                              Ubuntu does NOT create the
+#                                              documented RHEL path (PKG-005)
+
+- name: Select the expected ansible-playbook path for this platform
+  ansible.builtin.set_fact:
+    s1_expected_bin: >-
+      {{ s1_ubuntu_playbook_bin if ansible_os_family == 'Debian'
+         else s1_documented_playbook_bin }}
 
 - name: Locate the vendor ansible-playbook
   ansible.builtin.stat:
-    path: "{{ s1_documented_playbook_bin }}"
+    path: "{{ s1_expected_bin }}"
   register: s1_bin_stat
   when: s1_bin | length == 0
 
@@ -72,7 +45,7 @@
 # as root, which with `set -o pipefail` used to kill this task and suppress the
 # helpful message. Symlinks count too — every O release links the real binary
 # into /root/.local/bin rather than installing it there.
-- name: Search for ansible-playbook when the documented path is absent
+- name: Search for ansible-playbook when the expected path is absent
   ansible.builtin.shell: >-
     find / \( -type f -o -type l \) -name ansible-playbook -executable
     2>/dev/null | head -20
@@ -88,9 +61,7 @@
 - name: Fail with the candidates found on the host
   ansible.builtin.fail:
     msg: |
-      offline_installation.sh ran, but {{ s1_documented_playbook_bin }} does
-      not exist. Every release examined creates it, so this package may lay
-      things out differently.
+      The vendor tooling ran, but {{ s1_expected_bin }} does not exist.
 
       Candidates on this host:
       {{ s1_bin_search.stdout | default('(none found)') }}
@@ -100,16 +71,17 @@
     - s1_bin | length == 0
     - not s1_bin_stat.stat.exists
 
-- name: Adopt the documented ansible-playbook path
+- name: Adopt the expected ansible-playbook path
   ansible.builtin.set_fact:
-    s1_bin: "{{ s1_documented_playbook_bin }}"
+    s1_bin: "{{ s1_expected_bin }}"
   when: s1_bin | length == 0
 
 # The shebang names the Python the vendor installed its Ansible into, which is
 # also the one carrying the `docker` package it needs:
-#   O-25.4.4  RHEL 9  -> /usr/bin/python3.11        (pip --prefix=/usr/local)
-#   O-25.4.6+ RHEL 9  -> the venv's python3.11
-# Resolve symlinks first: the documented path points at the real binary.
+#   O-25.4.4  RHEL 9    -> /usr/bin/python3.11        (pip --prefix=/usr/local)
+#   O-25.4.6+ RHEL 9    -> the venv's python3.11
+#   O-26.1.1  Ubuntu 24 -> /usr/bin/python3           (pip --break-system-packages)
+# Resolve symlinks first: the expected path may point at the real binary.
 - name: Derive the interpreter from the ansible-playbook shebang
   ansible.builtin.shell: |
     set -e
@@ -136,6 +108,15 @@
       Set s1_python_interpreter explicitly and re-run.
   when: s1_py | length == 0
 
+# Ubuntu only, and only once the interpreter is known: install the docker
+# wheels the vendor scripts leave behind and apply the compatibility patch that
+# silently no-ops. Both target the interpreter resolved above.
+- name: Apply the fixes the Ubuntu vendor scripts omit
+  ansible.builtin.import_tasks: 43_bootstrap_ubuntu_fixups.yml
+  when:
+    - ansible_os_family == 'Debian'
+    - s1_ubuntu_apply_vendor_fixups | bool
+
 # The vendor deploy drives Docker through Ansible's docker modules. If the
 # interpreter cannot import docker, that surfaces 20+ minutes into the deploy
 # as a module failure; catching it here costs a second.
@@ -152,8 +133,10 @@
       deploy requires:
       {{ s1_docker_import.stderr | default('') | trim }}
 
-      This usually means offline_installation.sh installed docker into a
-      different interpreter. Set s1_python_interpreter to the one that has it.
+      On RHEL this usually means offline_installation.sh installed docker into a
+      different interpreter. On Ubuntu the vendor scripts never install it at
+      all (PKG-007) — check whether s1_ubuntu_apply_vendor_fixups was disabled.
+      Set s1_python_interpreter to the interpreter that has it.
   when: s1_docker_import.rc != 0
 
 - name: Report the Python version behind the vendor Ansible
@@ -168,7 +151,7 @@
 - name: Show the resolved Ansible runtime
   ansible.builtin.debug:
     msg:
-      - "binary      : {{ s1_bin }}{{ ' (override)' if s1_playbook_bin | length > 0 else ' (documented path)' }}"
+      - "binary      : {{ s1_bin }}{{ ' (override)' if s1_playbook_bin | length > 0 else ' (expected path)' }}"
       - "interpreter : {{ s1_py }}{{ ' (override)' if s1_python_interpreter | length > 0 else ' (from shebang)' }}"
       - "docker pkg  : importable"
       - "{{ s1_ansible_py.stdout | default('python version not reported') }}"

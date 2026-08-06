@@ -151,9 +151,34 @@ s1_verify_delay: 10
 # vendor docs tell customers to invoke it directly:
 s1_documented_playbook_bin: /root/.local/bin/ansible-playbook
 
+# Ubuntu does not create the documented path (PKG-005). pip lands the entry
+# point here instead, and the shebang still names the right interpreter, so
+# only the starting point differs.
+s1_ubuntu_playbook_bin: /usr/local/bin/ansible-playbook
+
 # Set either of these to bypass discovery entirely.
 s1_playbook_bin: ""
 s1_python_interpreter: ""
+
+# ============================================================================
+# Ubuntu
+# ============================================================================
+# The vendor ships no offline_installation.sh outside docker_ansible/rhel/, so
+# the two ubuntu_24 scripts are called directly. Passed to both explicitly
+# because they read the argument inversely (PKG-008).
+s1_offline_install: true
+
+# Tooling directory inside the package. Only ubuntu_24 is supported here; the
+# older ubuntu_14/18/20/22 trees have no offline path worth using — ubuntu_14's
+# install_everything.sh reaches the internet unconditionally.
+s1_ubuntu_tooling: ubuntu_24
+
+# Two things the vendor scripts leave undone, without which the deploy cannot
+# run: the bundled docker wheels are never installed (PKG-007), and the Python
+# 3.12 readfp patch silently patches nothing (PKG-006). Set false to run the
+# vendor tooling unaided — useful for checking whether a later package has
+# fixed either one.
+s1_ubuntu_apply_vendor_fixups: true
 
 # RHEL majors each prefix supports, from the case statement in
 # docker_ansible/rhel/offline_installation.sh. The OS gate for both roles.
@@ -177,3 +202,19 @@ s1_supported_rhel_majors:
 # A consequence worth stating plainly: no upgrade chain can run on RHEL 10,
 # because no release that could precede O-26.1.1 will install there.
 s1_min_version_rhel10: "26.1.1"
+
+# Lowest release that actually deploys on Ubuntu 24.04 — which is NOT the
+# first release to ship the tooling.
+#
+# docker_ansible/ubuntu_24 first appears in O-25.4.4, and its bootstrap runs
+# fine there. But deploy_mgmt.yml calls bare `python` in
+# roles/app/start_app_container.yml ("Create default UUID"), and Ubuntu 24.04
+# has no /usr/bin/python. O-25.4.6 does not fix that line — it is byte-identical
+# — but its ubuntu_24/pip/ bundle adds python-is-python3, which creates the
+# symlink as a side effect of the bootstrap. O-25.4.4's bundle does not, so it
+# fails ~2 minutes into the deploy. Observed on both. See
+# docs-feedback/ubuntu-24-offline-install.md (PKG-009).
+#
+# S-25.3.2 has no ubuntu_24 directory at all, so as with RHEL 10 there is no
+# chain to upgrade along on this platform.
+s1_min_version_ubuntu24: "25.4.6"

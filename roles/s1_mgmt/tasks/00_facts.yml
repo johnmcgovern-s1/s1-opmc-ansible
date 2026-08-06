@@ -47,6 +47,9 @@
   ansible.builtin.set_fact:
     s1_dest: "{{ s1_base }}/{{ s1_version_resolved }}"
     s1_docker_ansible: "{{ s1_base }}/{{ s1_version_resolved }}/docker_ansible"
+    # Ubuntu tooling lives beside rhel/ in the same package. Resolved for every
+    # platform; only 42_bootstrap_ubuntu.yml reads it.
+    s1_ubuntu_dir: "{{ s1_base }}/{{ s1_version_resolved }}/docker_ansible/{{ s1_ubuntu_tooling }}"
 
 # The vendor's ansible-playbook location depends on the release, not just the
 # prefix and OS major, so it cannot be known until offline_installation.sh has

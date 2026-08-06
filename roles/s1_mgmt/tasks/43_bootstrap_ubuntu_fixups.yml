@@ -1,0 +1,72 @@
+---
+# Work the vendor's ubuntu_24 scripts do not do, without which deploy_mgmt.yml
+# cannot run. Both were reproduced on a bare Ubuntu 24.04.4 host — see
+# docs-feedback/ubuntu-24-offline-install.md (PKG-006, PKG-007).
+#
+# This runs AFTER the runtime has been resolved, so the fixes land in the same
+# interpreter the vendor Ansible actually uses rather than in a guessed one.
+
+# --- PKG-007: the docker Python module is never installed -------------------
+# ubuntu_24/python-docker/ ships docker-7.1.0 and its dependencies, and neither
+# vendor script references that directory. The deploy drives Docker through
+# Ansible's docker modules, so without this it fails outright.
+
+- name: Check whether the resolved interpreter can already import docker
+  ansible.builtin.command: "{{ s1_py | quote }} -c 'import docker'"
+  register: s1_ub_docker_check
+  changed_when: false
+  failed_when: false
+
+- name: Install the bundled docker Python module (the vendor scripts omit it)
+  ansible.builtin.command: >-
+    {{ s1_py | quote }} -m pip install --no-index
+    --find-links=file://{{ s1_ubuntu_dir }}/python-docker
+    docker --ignore-installed --break-system-packages
+  register: s1_ub_docker_install
+  changed_when: s1_ub_docker_install.rc == 0
+  when: s1_ub_docker_check.rc != 0
+
+# --- PKG-006: the readfp compatibility patch never applies ------------------
+# install_docker_and_pip.sh carries patch_ansible(), which resolves
+# `import ansible` from its own directory — where the bundled wheel folder is
+# also called `ansible`. It therefore "patches" the wheel directory, finds
+# neither target file, and returns 0 without warning. Ubuntu 24.04 ships Python
+# 3.12, where configparser.readfp() was removed, so the call sites it was meant
+# to fix are live breakage.
+#
+# chdir and -P both keep the working directory out of sys.path, so this resolves
+# the real installed package rather than repeating the vendor's mistake.
+
+- name: Locate the ansible package belonging to the resolved interpreter
+  ansible.builtin.command: >-
+    {{ s1_py | quote }} -P -c
+    'import ansible, sys; sys.stdout.write(ansible.__path__[0])'
+  args:
+    chdir: /
+  register: s1_ub_ansible_pkg
+  changed_when: false
+  failed_when: false
+
+- name: Apply the Python 3.12 readfp patch the vendor script fails to apply
+  ansible.builtin.replace:
+    path: "{{ s1_ub_ansible_pkg.stdout | trim }}/{{ item }}"
+    regexp: readfp
+    replace: read_file
+  loop:
+    - plugins/lookup/ini.py
+    - module_utils/facts/system/local.py
+  register: s1_ub_readfp
+  failed_when: false
+  when: (s1_ub_ansible_pkg.stdout | default('') | trim) | length > 0
+
+- name: Report the Ubuntu fix-ups applied
+  ansible.builtin.debug:
+    msg:
+      - "docker module : {{ 'installed from bundled wheels (PKG-007)'
+                            if s1_ub_docker_check.rc != 0
+                            else 'already importable — vendor scripts may be fixed' }}"
+      - "ansible pkg   : {{ s1_ub_ansible_pkg.stdout | default('(not resolved)') | trim }}"
+      - "readfp patch  : {{ (s1_ub_readfp.results | default([])
+                             | selectattr('changed', 'defined')
+                             | selectattr('changed') | list | length)
+                            ~ ' of 2 files changed (PKG-006)' }}"

@@ -1,0 +1,56 @@
+---
+# Installs docker-ce, pip, the docker python package and the vendor's pinned
+# Ansible. Entirely offline: offline_installation.sh writes its own
+# /etc/yum.repos.d/sentinelone.repo pointing at file://.../rhel{8,9} and runs
+# every dnf call with --disablerepo=* --enablerepo=sentinelone. Neither RHSM
+# nor the DVD is consulted.
+
+- name: Remove podman packages that conflict with docker-ce
+  ansible.builtin.dnf:
+    name:
+      - podman
+      - podman-manpages
+      - buildah
+    state: absent
+    disablerepo: "*"
+  failed_when: false
+
+# Optional and off by default. The bundled repo ships python36 (S) or
+# python3.11 (O) — never python38 — so this needs RHSM or a DVD repo.
+- name: Install Python 3.8 from an external repo (S-prefix, RHEL 8, opt-in)
+  ansible.builtin.dnf:
+    name: python38
+    state: present
+  when:
+    - s1_install_python38 | bool
+    - s1_prefix == 'S'
+    - ansible_distribution_major_version == '8'
+
+- name: Install docker-ce, pip and the docker python package
+  ansible.builtin.command: ./offline_installation.sh install_docker_and_pip
+  args:
+    chdir: "{{ s1_docker_ansible }}/rhel"
+  register: s1_bootstrap_docker
+  changed_when: true
+
+- name: Detect the RHEL 10 kernel-reboot condition
+  ansible.builtin.fail:
+    msg: >-
+      offline_installation.sh reported KERNEL UPDATE INSTALLED - REBOOT REQUIRED.
+      Reboot the server and re-run this playbook.
+  when: "'REBOOT REQUIRED' in (s1_bootstrap_docker.stdout | default(''))"
+
+# For O-prefix this is already done inside install_docker_and_pip; re-running is
+# harmless (pip --upgrade). For S-prefix it is a required second step.
+- name: Install the vendor-pinned Ansible
+  ansible.builtin.command: ./offline_installation.sh install_ansible
+  args:
+    chdir: "{{ s1_docker_ansible }}/rhel"
+  changed_when: true
+
+- name: Ensure the Docker daemon is enabled and running
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+    daemon_reload: true

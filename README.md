@@ -246,6 +246,7 @@ two different things, so the status legend covers both:
 | ⬜ | The vendor package supports it; this project has not tested it |
 | 🔜 | Not supported yet by these playbooks; on the roadmap |
 | ❌ | The vendor package does not ship an installer for it — `offline_installation.sh` exits with `Error: RHEL <version> is not supported` |
+| ⛔ | The vendor ships tooling for it, and it bootstraps — but the release cannot complete a deploy there. Preflight blocks it rather than letting it fail mid-deploy |
 
 A ✅ also records **how** that release was reached, because the two routes run
 different code and are not interchangeable:
@@ -265,9 +266,9 @@ tarballs on 2026-08-04.
 | Release | RHEL 7 | RHEL 8 | RHEL 9 | RHEL 10 | Ubuntu 14–22 | Ubuntu 24.04 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ❌ |
-| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | 🔜 |
-| O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | 🔜 |
-| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | 🔜 |
+| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⛔ 24.04 |
+| O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ✅ 24.04 **(I)** |
+| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 24.04 **(I)** |
 
 The **(I)** / **(U)** markers show that on **RHEL 8 and RHEL 9 every release has
 been validated by both routes** — clean-installed directly onto a bare host, and
@@ -286,6 +287,7 @@ could precede O-26.1.1 runs there.
 | rhel03 | RHEL 10.2 | ✅ O-26.1.1 | ❌ not possible | O-26.1.1, 21 containers, none down |
 | rhel01 | RHEL 8.10 | ✅ all four releases | — not run | each verified independently, none down |
 | rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
+| ubuntu2404 | Ubuntu 24.04.4 | ✅ O-25.4.6, O-26.1.1 (⛔ O-25.4.4) | — not run yet | 21 containers, none down, on both working releases |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
@@ -306,21 +308,52 @@ vendor error 20 minutes in.
 
 ### Ubuntu
 
-Not supported by these playbooks yet, and the gap is real work rather than a
-flipped flag:
+**24.04 LTS is supported from O-25.4.6.** Both O-25.4.6 and O-26.1.1 install
+cleanly — `failed=0`, 21 containers all healthy, console serving HTTPS — from a
+bare host with no overrides. Older Ubuntu releases are not wired up: `ubuntu_14`
+through `ubuntu_22` ship no usable offline path (`ubuntu_14`'s
+`install_everything.sh` reaches the internet unconditionally), and preflight
+fails with a clear message on anything but 24.04.
 
-- The vendor ships a complete parallel installer — `docker_ansible/ubuntu_24/`
-  carries its own `install_docker_and_pip.sh`, `install_ansible.sh`, Docker
-  engine `.deb`s and the Ansible/`docker` wheels. Ubuntu 24.04 has been in the
-  package since **O-25.4.4**; 14/18/20/22 go back further.
-- But there is **no `offline_installation.sh` outside `rhel/`**. That script is
-  the dispatcher this project shells out to in `40_bootstrap.yml`, so Ubuntu
-  needs a separate bootstrap path calling the two scripts directly.
-- Preflight also asserts `ansible_distribution == 'RedHat'`, and the Python
-  bootstrap is `dnf`-only.
+**O-25.4.4 is the exception, and it is a trap.** It ships the full `ubuntu_24`
+tree and bootstraps without complaint, then dies about two minutes into the
+vendor deploy: `deploy_mgmt.yml` calls bare `python`, which Ubuntu 24.04 does
+not provide. O-25.4.6 does **not** fix that line — it is byte-identical, as are
+both `ubuntu_24` scripts — but its `pip/` bundle happens to include
+`python-is-python3`, which creates `/usr/bin/python` as a side effect of the
+bootstrap. O-25.4.4's bundle does not. `s1_min_version_ubuntu24` therefore gates
+on **25.4.6**, so preflight refuses up front rather than failing mid-deploy.
 
-**24.04 LTS is the intended starting point** when this is picked up — it is the
-only Ubuntu the current release line still ships alongside RHEL 10.
+Ubuntu needs its own bootstrap because the vendor ships two entirely separate
+mechanisms. There is **no `offline_installation.sh` outside `rhel/`** — that
+script is the dispatcher the RHEL path shells out to — and `ubuntu_24` has no
+`install_everything.sh` wrapper either. So `42_bootstrap_ubuntu.yml` calls
+`install_docker_and_pip.sh` and `install_ansible.sh` directly, passing the
+offline/online argument **explicitly to both**: they interpret it inversely, and
+any value other than exactly `true`/`false` installs Ansible from the bundled
+wheels while Docker reaches for the internet.
+
+**Two things the vendor scripts leave undone**, both required for the deploy to
+run at all, both applied by `43_bootstrap_ubuntu_fixups.yml`:
+
+- `ubuntu_24/python-docker/` ships the `docker` wheels and **neither script
+  installs them**. The deploy drives Docker through Ansible's docker modules, so
+  without this it cannot start.
+- `install_docker_and_pip.sh` carries a patch rewriting the removed
+  `configparser.readfp()` for Python 3.12, but it resolves `import ansible` from
+  its own directory — where the bundled wheel folder is also called `ansible`.
+  It therefore patches the wheel directory, finds nothing, and exits 0. The
+  incompatibility survives unpatched on a platform that ships Python 3.12.
+
+Both fixes run **after** the vendor scripts on every invocation, not once:
+`install_ansible.sh` uses `pip --ignore-installed`, so a re-run reinstalls
+Ansible and reverts the patch.
+
+Everything else generalised without change. Runtime discovery needed only a new
+starting path — Ubuntu does not create the `/root/.local/bin/ansible-playbook`
+that every RHEL release makes deliberately, so the search begins at
+`/usr/local/bin` and reads the same shebang. `tasks/bootstrap_python.yml`
+self-skips, since 24.04 already ships Python 3.12.
 
 ## Roadmap
 
@@ -328,27 +361,29 @@ Ordered by value, not by effort.
 
 ### 1. Ubuntu 24.04 LTS — install and upgrade
 
-Support the platform (see [Ubuntu](#ubuntu) for the four blockers), then run a
-full campaign against it.
+**Installs are done; the upgrade chain is outstanding.** Both releases that can
+deploy on 24.04 — O-25.4.6 and O-26.1.1 — install cleanly, each from a fresh
+snapshot. O-25.4.4 was also attempted and is blocked by the vendor; see
+[Ubuntu](#ubuntu).
 
-**The chain cannot start at S-25.3.2.** That package ships `ubuntu_14` through
-`ubuntu_22` but no `ubuntu_24`, so 24.04 hits the same wall RHEL 10 does. The
-first release carrying `ubuntu_24` is **O-25.4.4**, which makes the campaign:
+**The chain is one hop, not two.** S-25.3.2 ships no `ubuntu_24` directory, and
+O-25.4.4 ships one it cannot deploy with, so the only chain available is:
 
 ```
-O-25.4.4 (clean install)  →  O-25.4.6  →  O-26.1.1
+O-25.4.6 (clean install)  →  O-26.1.1
 ```
 
-Two real hops, unlike RHEL 10 — enough to exercise the upgrade role on a
-non-RHEL platform, including runtime discovery across a vendor layout change.
-Worth checking early: `/root/.local/bin/ansible-playbook` is a RHEL
-backward-compatibility symlink the vendor creates deliberately, and there is no
-guarantee the Ubuntu scripts create it. If they do not, discovery needs a
-different documented path — that is the failure that bit the O-25.4.4 hop on
-RHEL 9.
+Preflight enforces the floor via `s1_min_version_ubuntu24`. One hop is thinner
+than hoped but still worth running — it is the only exercise the upgrade role
+would get on a non-RHEL platform, and the upgrade path has its own vendor
+scripts and config handling that the install path never touches.
 
-The clean install of O-25.4.4 here also doubles as a straight-to-version test
-below, on a platform that has not had one.
+One question the installs already answered: the `ubuntu_24` bootstrap does
+**not** drift between releases, unlike RHEL, where the vendor moved
+`ansible-playbook` between releases and between OS majors. Both `ubuntu_24`
+scripts are byte-identical across O-25.4.4 and O-25.4.6, and all three releases
+needed the same two fix-ups. What varies on Ubuntu is the *bundle contents* and
+the deploy playbook, not the installer.
 
 ### 2. Straight-to-version installs
 
@@ -428,6 +463,12 @@ O-25.4.6 and O-26.1.1 were each installed onto a host reverted to a fresh
 snapshot beforehand — eight installs in total, all reporting `failed=0` with the
 console serving HTTPS.
 
+**Ubuntu 24.04 LTS** is validated for a clean O-26.1.1 install — `failed=0`, 21
+containers all healthy, console serving HTTPS, from a bare host with no
+overrides. The vendor's own `deploy_mgmt.yml` runs there unmodified; what this
+project adds is a separate bootstrap path and two fixes for work the vendor's
+Ubuntu scripts omit. See [Ubuntu](#ubuntu).
+
 Exercised against a live host:
 
 - Package checksum verification against vendor-published sums (all four)
@@ -498,9 +539,8 @@ RHEL 10.2 has not.
 
 **Not yet exercised:** the Postgres 11→15 migration path (`upgrade_postgres` /
 `dump_dir` — every console tested was already on 15), any upgrade hop on
-RHEL 10, RHEL 7, and every Ubuntu release. The [Roadmap](#roadmap) says which of
-those are being picked up
-and in what order.
+RHEL 10 or Ubuntu, RHEL 7, and Ubuntu releases before 24.04. The
+[Roadmap](#roadmap) says which of those are being picked up and in what order.
 
 Behaviour here was derived from the vendor's own `offline_installation.sh`,
 `deploy_mgmt.yml` and `group_vars/all/config.yml`, plus SentinelOne's
