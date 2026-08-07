@@ -2,13 +2,54 @@
 # Bring-your-own certificates. The key must be passwordless — the vendor
 # playbook cannot prompt for a passphrase.
 
-- name: Ensure the certificate directory exists
+# Never change the permissions of a directory we did not create. `file` with
+# state: directory is declarative — it enforces owner/mode on the path whether
+# or not it made it. Pointed at a pre-existing shared directory that silently
+# rewrites it: with s1_cert_dir=/tmp this took /tmp from 1777 to 0700 root:root,
+# stripping the sticky bit and breaking every non-root process expecting to use
+# it. Reproduced on a bare host, from this stage alone.
+#
+# That configuration is not far-fetched — the vendor install article says
+# "Copy the SSL certificates to the /tmp folder", so an operator following the
+# documented procedure lands exactly there.
+
+- name: Check the certificate directory
+  ansible.builtin.stat:
+    path: "{{ s1_cert_dir }}"
+  register: s1_cert_dir_stat
+
+- name: Refuse to stage a private key in a world-writable directory
+  ansible.builtin.fail:
+    msg: |
+      {{ s1_cert_dir }} already exists and is world-writable
+      ({{ s1_cert_dir_stat.stat.mode }}). Staging an unencrypted private key
+      there would expose it to every local user, so this stage stops rather than
+      either weakening the key or silently re-permissioning a shared directory.
+
+      The vendor install article does say to copy certificates to /tmp. That is
+      worth avoiding: use a directory owned by root instead.
+
+        s1_cert_dir: /etc/sentinelone/certs      # the default
+
+      Override with s1_allow_world_writable_cert_dir=true if you accept the
+      exposure — the directory's own permissions will still be left untouched.
+  when:
+    - s1_cert_dir_stat.stat.exists
+    - s1_cert_dir_stat.stat.isdir | default(false)
+    - s1_cert_dir_stat.stat.mode is defined
+    - s1_cert_dir_stat.stat.mode[-2] | int >= 2
+    - not s1_allow_world_writable_cert_dir | bool
+
+# Only when absent, so an existing directory keeps whatever permissions its
+# owner chose.
+- name: Create the certificate directory
   ansible.builtin.file:
     path: "{{ s1_cert_dir }}"
     state: directory
     owner: root
     group: root
     mode: "0700"
+  when: not s1_cert_dir_stat.stat.exists
 
 - name: Copy the private key
   ansible.builtin.copy:

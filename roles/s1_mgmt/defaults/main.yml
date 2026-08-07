@@ -45,6 +45,13 @@ s1_pem_src: certificates/certificate.pem
 # a world-writable directory like /tmp for private key material.
 s1_cert_dir: /etc/sentinelone/certs
 
+# 30_certs.yml creates s1_cert_dir only when it is absent, and never alters the
+# permissions of a directory it did not create. If the directory already exists
+# and is world-writable it refuses, because staging an unencrypted private key
+# there exposes it to every local user. Set true to proceed anyway — the
+# directory's own permissions are still left alone either way.
+s1_allow_world_writable_cert_dir: false
+
 s1_admin_fullname: ""
 s1_admin_email: ""
 # Set in group_vars/all/vault.yml (ansible-vault encrypted).

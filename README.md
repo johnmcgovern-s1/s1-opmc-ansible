@@ -203,6 +203,7 @@ ones you are most likely to need:
 | `s1_require_avx` | `true` | Block O-prefix installs on a CPU without AVX |
 | `s1_verify_storage` / `s1_storage_fail_hard` | `true` / `false` | Disk checks; advisory by default |
 | `s1_install_python38` | `false` | S-prefix on RHEL 8 only; needs an external repo |
+| `s1_cert_dir` | `/etc/sentinelone/certs` | Where the key/PEM are staged **on the target**. The vendor article says `/tmp`; don't — see below |
 | **Upgrade only** | | |
 | `s1_snapshot_confirmed` | `false` | Must be `true` — the snapshot gate |
 | `s1_skip_chain_check` | `false` | Bypass version-skip protection (see below) |
@@ -210,6 +211,19 @@ ones you are most likely to need:
 | `s1_postgres_dir` / `s1_mongo_dir` | auto-detected | Override database locations |
 | `s1_dump_dir` | `/tmp/backup/postgres` | Scratch space for a Postgres 11→15 migration |
 | `s1_force_legacy_token` | `null` (untouched) | Set `false` for EDG / hybrid-EDR |
+
+**Do not stage certificates in `/tmp`.** The vendor install article says to copy
+them there, and the file being copied is an unencrypted private key — the same
+article requires it to be passphrase-less. `/tmp` is world-writable, the article
+specifies no file modes, and nothing removes the key afterwards, so it stays
+readable for the life of the console.
+
+`30_certs.yml` refuses a world-writable `s1_cert_dir` rather than staging a key
+into one (`s1_allow_world_writable_cert_dir=true` to override). It also creates
+the directory **only when absent** and never alters the permissions of one it
+did not create — an earlier version enforced `0700 root:root` on whatever path
+it was given, which turned `/tmp` from `1777` into root-only and broke every
+non-root process depending on it.
 
 **Versions cannot be skipped.** `upgrade.yml` reads `/s1/version.json`, computes
 the one legal next hop, and refuses anything else — S-25.3.2 → O-26.1.1 is three
