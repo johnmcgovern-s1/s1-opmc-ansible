@@ -282,7 +282,7 @@ tarballs on 2026-08-04.
 | S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ❌ |
 | O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⛔ 24.04 |
 | O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ✅ 24.04 **(I)** |
-| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 24.04 **(I)** |
+| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 24.04 **(I, U)** |
 
 The **(I)** / **(U)** markers show that on **RHEL 8 and RHEL 9 every release has
 been validated by both routes** — clean-installed directly onto a bare host, and
@@ -301,7 +301,7 @@ could precede O-26.1.1 runs there.
 | rhel03 | RHEL 10.2 | ✅ O-26.1.1 | ❌ not possible | O-26.1.1, 21 containers, none down |
 | rhel01 | RHEL 8.10 | ✅ all four releases | — not run | each verified independently, none down |
 | rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
-| ubuntu2404 | Ubuntu 24.04.4 | ✅ O-25.4.6, O-26.1.1 (⛔ O-25.4.4) | — not run yet | 21 containers, none down, on both working releases |
+| ubuntu2404 | Ubuntu 24.04.4 | ✅ O-25.4.6, O-26.1.1 (⛔ O-25.4.4) | ✅ the one hop available | O-26.1.1, 21 containers, none down |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
@@ -375,10 +375,10 @@ Ordered by value, not by effort.
 
 ### 1. Ubuntu 24.04 LTS — install and upgrade
 
-**Installs are done; the upgrade chain is outstanding.** Both releases that can
-deploy on 24.04 — O-25.4.6 and O-26.1.1 — install cleanly, each from a fresh
-snapshot. O-25.4.4 was also attempted and is blocked by the vendor; see
-[Ubuntu](#ubuntu).
+**Done for 24.04.** Both releases that can deploy there — O-25.4.6 and
+O-26.1.1 — install cleanly from a fresh snapshot, and the one upgrade hop
+available runs clean too. O-25.4.4 was attempted and is blocked by the vendor;
+see [Ubuntu](#ubuntu).
 
 **The chain is one hop, not two.** S-25.3.2 ships no `ubuntu_24` directory, and
 O-25.4.4 ships one it cannot deploy with, so the only chain available is:
@@ -387,17 +387,26 @@ O-25.4.4 ships one it cannot deploy with, so the only chain available is:
 O-25.4.6 (clean install)  →  O-26.1.1
 ```
 
-Preflight enforces the floor via `s1_min_version_ubuntu24`. One hop is thinner
-than hoped but still worth running — it is the only exercise the upgrade role
-would get on a non-RHEL platform, and the upgrade path has its own vendor
-scripts and config handling that the install path never touches.
+Preflight enforces the floor via `s1_min_version_ubuntu24`, in both roles. One
+hop is thinner than hoped, but it is the only exercise the upgrade role gets on
+a non-RHEL platform, and it covers stages the install path never touches —
+`40_config.yml` with its different `mount_dir` handling, `50_presteps.yml`, the
+Postgres detection, and the expected-broken container handling.
 
-One question the installs already answered: the `ubuntu_24` bootstrap does
-**not** drift between releases, unlike RHEL, where the vendor moved
-`ansible-playbook` between releases and between OS majors. Both `ubuntu_24`
-scripts are byte-identical across O-25.4.4 and O-25.4.6, and all three releases
-needed the same two fix-ups. What varies on Ubuntu is the *bundle contents* and
-the deploy playbook, not the installer.
+Two things the campaign settled that a single install could not. The `ubuntu_24`
+bootstrap does **not** drift between releases, unlike RHEL where the vendor
+moved `ansible-playbook` between releases and between OS majors: both scripts
+are byte-identical across O-25.4.4 and O-25.4.6, and every release needed the
+same two fix-ups. And the upgrade leaves no stale container behind, unlike the
+RHEL `S→O` hop — consistent with that divergence being specific to O-25.4.4.
+What varies on Ubuntu is the *bundle contents* and the deploy playbook, not the
+installer.
+
+**What remains for Ubuntu is other releases of it**, not 24.04: `ubuntu_18`,
+`ubuntu_20` and `ubuntu_22` all ship the same two-script offline shape, so the
+bootstrap should port by changing `s1_ubuntu_tooling`. The unknowns there are
+empirical rather than structural — 22.04 ships Python 3.10, so the `readfp`
+fix-up is unnecessary, and its pip predates `--break-system-packages`.
 
 ### 2. Straight-to-version installs
 
@@ -477,11 +486,13 @@ O-25.4.6 and O-26.1.1 were each installed onto a host reverted to a fresh
 snapshot beforehand — eight installs in total, all reporting `failed=0` with the
 console serving HTTPS.
 
-**Ubuntu 24.04 LTS** is validated for a clean O-26.1.1 install — `failed=0`, 21
-containers all healthy, console serving HTTPS, from a bare host with no
-overrides. The vendor's own `deploy_mgmt.yml` runs there unmodified; what this
-project adds is a separate bootstrap path and two fixes for work the vendor's
-Ubuntu scripts omit. See [Ubuntu](#ubuntu).
+**Ubuntu 24.04 LTS** is validated for clean installs of O-25.4.6 and O-26.1.1,
+and for the one upgrade hop between them — `failed=0` throughout, 21 containers
+all healthy, console serving HTTPS, from bare hosts with no overrides. The
+vendor's own `deploy_mgmt.yml` runs there unmodified; what this project adds is
+a separate bootstrap path and two fixes for work the vendor's Ubuntu scripts
+omit. O-25.4.4 ships Ubuntu tooling it cannot deploy with and is refused by
+preflight. See [Ubuntu](#ubuntu).
 
 Exercised against a live host:
 
@@ -553,8 +564,8 @@ RHEL 10.2 has not.
 
 **Not yet exercised:** the Postgres 11→15 migration path (`upgrade_postgres` /
 `dump_dir` — every console tested was already on 15), any upgrade hop on
-RHEL 10 or Ubuntu, RHEL 7, and Ubuntu releases before 24.04. The
-[Roadmap](#roadmap) says which of those are being picked up and in what order.
+RHEL 10, RHEL 7, and Ubuntu releases before 24.04. The [Roadmap](#roadmap) says
+which of those are being picked up and in what order.
 
 Behaviour here was derived from the vendor's own `offline_installation.sh`,
 `deploy_mgmt.yml` and `group_vars/all/config.yml`, plus SentinelOne's

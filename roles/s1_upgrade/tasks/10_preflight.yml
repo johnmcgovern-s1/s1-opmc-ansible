@@ -18,10 +18,17 @@
 
 # --- OS gate ----------------------------------------------------------------
 
-- name: Assert the OS is supported for this hop
+- name: Assert the OS is one this playbook supports
   ansible.builtin.assert:
     that:
-      - ansible_distribution == 'RedHat'
+      - ansible_distribution == 'RedHat' or ansible_distribution == 'Ubuntu'
+    fail_msg: >-
+      This playbook targets RHEL and Ubuntu. Found {{ ansible_distribution }}
+      {{ ansible_distribution_version }}.
+
+- name: Assert this release supports the RHEL major version
+  ansible.builtin.assert:
+    that:
       - ansible_distribution_major_version in s1_supported_rhel_majors[s1_prefix]
     fail_msg: >-
       No runtime entry for {{ s1_prefix }}-prefix on
@@ -29,6 +36,37 @@
       If you are upgrading the OS as well, do it in the order the vendor
       documents: OS to a version supported by BOTH releases, then the
       platform, then optionally the OS again.
+  when: ansible_distribution == 'RedHat'
+
+# Ubuntu 24.04 is gated on the release being able to deploy there at all, not
+# merely on the tooling shipping — see s1_min_version_ubuntu24 in
+# roles/s1_mgmt/defaults/main.yml. The same floor applies to a hop's target:
+# upgrading *to* a release that cannot deploy on this platform would fail in
+# the vendor playbook rather than here.
+- name: Assert the target release can deploy on Ubuntu 24.04
+  ansible.builtin.assert:
+    that:
+      - s1_prefix == 'O'
+      - s1_version_resolved | regex_replace('^[SO]-', '')
+        is version(s1_min_version_ubuntu24, '>=')
+    fail_msg: >-
+      Ubuntu 24.04 support begins at O-{{ s1_min_version_ubuntu24 }}, so the hop
+      to {{ s1_version_resolved }} cannot run here. Earlier releases either ship
+      no {{ s1_ubuntu_tooling }} directory or ship one whose deploy calls bare
+      `python`, which Ubuntu 24.04 does not provide.
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - ansible_distribution_major_version == '24'
+
+- name: Fail on an Ubuntu release this playbook has not been built for
+  ansible.builtin.fail:
+    msg: >-
+      Ubuntu {{ ansible_distribution_version }} is not supported here. Only
+      24.04 is wired up ({{ s1_ubuntu_tooling }}); the older ubuntu_14/18/20/22
+      trees are untested by this project.
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - ansible_distribution_major_version != '24'
 
 # The prefix check above is not sufficient for RHEL 10 — O-25.4.4 and
 # O-25.4.6 are O-prefix but have no 10* case. See s1_min_version_rhel10 in
@@ -46,7 +84,9 @@
 
       In practice no upgrade chain runs on RHEL 10 at all: every release that
       could precede O-{{ s1_min_version_rhel10 }} refuses to install on it.
-  when: ansible_distribution_major_version == '10'
+  when:
+    - ansible_distribution == 'RedHat'
+    - ansible_distribution_major_version == '10'
 
 # /tmp mounted noexec breaks the vendor's pip and Docker installs.
 - name: Check whether /tmp is mounted noexec
