@@ -5,6 +5,24 @@
 #
 # This runs AFTER the runtime has been resolved, so the fixes land in the same
 # interpreter the vendor Ansible actually uses rather than in a guessed one.
+#
+# Both are ubuntu_24 problems specifically. The ubuntu_22 scripts install the
+# docker wheels themselves and carry no readfp patch — they do not need one,
+# since 22.04 is Python 3.10 where configparser.readfp() still exists. Each fix
+# is therefore gated on the condition that makes it necessary rather than on
+# "this is Ubuntu".
+
+- name: Decide whether the readfp patch is required for this interpreter
+  ansible.builtin.command: >-
+    {{ s1_py | quote }} -c
+    'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)'
+  register: s1_ub_py312
+  changed_when: false
+  failed_when: false
+
+- name: Record whether readfp needs patching
+  ansible.builtin.set_fact:
+    s1_ubuntu_readfp_required: "{{ s1_ub_py312.rc == 0 }}"
 
 # --- PKG-007: the docker Python module is never installed -------------------
 # ubuntu_24/python-docker/ ships docker-7.1.0 and its dependencies, and neither
@@ -37,16 +55,39 @@
 # chdir and -P both keep the working directory out of sys.path, so this resolves
 # the real installed package rather than repeating the vendor's mistake.
 
+# chdir: / is what actually prevents the shadowing — there is no /ansible — and
+# PYTHONSAFEPATH does the same for interpreters that honour it. The `-P` flag
+# would too, but it only exists from Python 3.11: on Ubuntu 22.04 (Python 3.10)
+# it makes the interpreter exit non-zero, which failed_when: false then swallows,
+# leaving the path empty and the patch silently skipped. That is precisely the
+# failure shape PKG-006 is about, so it is not repeated here.
 - name: Locate the ansible package belonging to the resolved interpreter
   ansible.builtin.command: >-
-    {{ s1_py | quote }} -P -c
+    {{ s1_py | quote }} -c
     'import ansible, sys; sys.stdout.write(ansible.__path__[0])'
   args:
     chdir: /
+  environment:
+    PYTHONSAFEPATH: "1"
   register: s1_ub_ansible_pkg
   changed_when: false
   failed_when: false
 
+- name: Fail when the ansible package could not be located
+  ansible.builtin.fail:
+    msg: |
+      Could not resolve the ansible package for {{ s1_py }}:
+      {{ s1_ub_ansible_pkg.stderr | default('(no error reported)') | trim }}
+
+      The readfp compatibility patch cannot be applied without it. Set
+      s1_ubuntu_apply_vendor_fixups=false to skip the fix-ups deliberately.
+  when:
+    - (s1_ub_ansible_pkg.stdout | default('') | trim) | length == 0
+    - s1_ubuntu_readfp_required | bool
+
+# Only needed where configparser.readfp() has actually been removed — Python
+# 3.12 and later. On 22.04 (3.10) readfp still exists and the vendor's own patch
+# is unnecessary, so replacing it would be a no-op with a misleading report.
 - name: Apply the Python 3.12 readfp patch the vendor script fails to apply
   ansible.builtin.replace:
     path: "{{ s1_ub_ansible_pkg.stdout | trim }}/{{ item }}"
@@ -57,6 +98,9 @@
     - module_utils/facts/system/local.py
   register: s1_ub_readfp
   failed_when: false
+  when:
+    - (s1_ub_ansible_pkg.stdout | default('') | trim) | length > 0
+    - s1_ubuntu_readfp_required | bool
   when: (s1_ub_ansible_pkg.stdout | default('') | trim) | length > 0
 
 - name: Report the Ubuntu fix-ups applied
@@ -66,7 +110,9 @@
                             if s1_ub_docker_check.rc != 0
                             else 'already importable — vendor scripts may be fixed' }}"
       - "ansible pkg   : {{ s1_ub_ansible_pkg.stdout | default('(not resolved)') | trim }}"
-      - "readfp patch  : {{ (s1_ub_readfp.results | default([])
-                             | selectattr('changed', 'defined')
-                             | selectattr('changed') | list | length)
-                            ~ ' of 2 files changed (PKG-006)' }}"
+      - "readfp patch  : {{ ((s1_ub_readfp.results | default([])
+                              | selectattr('changed', 'defined')
+                              | selectattr('changed') | list | length)
+                             ~ ' of 2 files changed (PKG-006)')
+                            if s1_ubuntu_readfp_required | bool
+                            else 'not required — Python < 3.12 still has readfp' }}"
