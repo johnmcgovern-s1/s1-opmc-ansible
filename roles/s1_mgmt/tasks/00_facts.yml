@@ -47,9 +47,18 @@
   ansible.builtin.set_fact:
     s1_dest: "{{ s1_base }}/{{ s1_version_resolved }}"
     s1_docker_ansible: "{{ s1_base }}/{{ s1_version_resolved }}/docker_ansible"
-    # Ubuntu tooling lives beside rhel/ in the same package. Resolved for every
-    # platform; only 42_bootstrap_ubuntu.yml reads it.
-    s1_ubuntu_dir: "{{ s1_base }}/{{ s1_version_resolved }}/docker_ansible/{{ s1_ubuntu_tooling }}"
+    # Ubuntu tooling lives beside rhel/ in the same package. Derived from the OS
+    # major version unless pinned — the vendor names the directories ubuntu_22,
+    # ubuntu_24 and so on, so the mapping needs no table. Resolved for every
+    # platform; only the Ubuntu bootstrap reads it.
+    s1_ubuntu_tooling_resolved: >-
+      {{ s1_ubuntu_tooling if (s1_ubuntu_tooling | length > 0)
+         else ('ubuntu_' ~ ansible_distribution_major_version) }}
+
+- name: Resolve the Ubuntu tooling path
+  ansible.builtin.set_fact:
+    s1_ubuntu_dir: >-
+      {{ s1_base }}/{{ s1_version_resolved }}/docker_ansible/{{ s1_ubuntu_tooling_resolved }}
 
 # The vendor's ansible-playbook location depends on the release, not just the
 # prefix and OS major, so it cannot be known until offline_installation.sh has

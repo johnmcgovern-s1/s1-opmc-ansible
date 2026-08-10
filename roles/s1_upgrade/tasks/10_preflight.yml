@@ -52,21 +52,33 @@
     fail_msg: >-
       Ubuntu 24.04 support begins at O-{{ s1_min_version_ubuntu24 }}, so the hop
       to {{ s1_version_resolved }} cannot run here. Earlier releases either ship
-      no {{ s1_ubuntu_tooling }} directory or ship one whose deploy calls bare
-      `python`, which Ubuntu 24.04 does not provide.
+      no ubuntu_24 directory or ship one whose deploy calls bare `python`, which
+      Ubuntu 24.04 does not provide.
   when:
     - ansible_distribution == 'Ubuntu'
     - ansible_distribution_major_version == '24'
+
+# 22.04 has no floor of its own — see the equivalent note in the install role.
+- name: Assert an O-prefix release on Ubuntu 22.04
+  ansible.builtin.assert:
+    that:
+      - s1_prefix == 'O'
+    fail_msg: >-
+      {{ s1_version_resolved }} is an S-prefix release. Only O-prefix packages
+      have been validated on Ubuntu.
+  when:
+    - ansible_distribution == 'Ubuntu'
+    - ansible_distribution_major_version == '22'
 
 - name: Fail on an Ubuntu release this playbook has not been built for
   ansible.builtin.fail:
     msg: >-
       Ubuntu {{ ansible_distribution_version }} is not supported here. Only
-      24.04 is wired up ({{ s1_ubuntu_tooling }}); the older ubuntu_14/18/20/22
-      trees are untested by this project.
+      22.04 and 24.04 are wired up; the vendor also ships ubuntu_14/18/20, which
+      are untested by this project.
   when:
     - ansible_distribution == 'Ubuntu'
-    - ansible_distribution_major_version != '24'
+    - ansible_distribution_major_version not in ['22', '24']
 
 # The prefix check above is not sufficient for RHEL 10 — O-25.4.4 and
 # O-25.4.6 are O-prefix but have no 10* case. See s1_min_version_rhel10 in

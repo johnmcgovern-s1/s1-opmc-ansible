@@ -158,10 +158,18 @@ s1_verify_delay: 10
 # vendor docs tell customers to invoke it directly:
 s1_documented_playbook_bin: /root/.local/bin/ansible-playbook
 
-# Ubuntu does not create the documented path (PKG-005). pip lands the entry
-# point here instead, and the shebang still names the right interpreter, so
-# only the starting point differs.
-s1_ubuntu_playbook_bin: /usr/local/bin/ansible-playbook
+# Ubuntu does not create the documented path (PKG-005), and where it does land
+# depends on how that release's script installs Ansible:
+#
+#   ubuntu_24  pip install --break-system-packages  ->  /usr/local/bin
+#   ubuntu_22  dpkg -i ansible/*  (distro package)  ->  /usr/bin
+#
+# Tried in order, first hit wins. A list rather than a per-release table for the
+# same reason the interpreter is read from a shebang: the next Ubuntu the vendor
+# adds needs no new entry unless it invents a third location.
+s1_ubuntu_playbook_candidates:
+  - /usr/local/bin/ansible-playbook
+  - /usr/bin/ansible-playbook
 
 # Set either of these to bypass discovery entirely.
 s1_playbook_bin: ""
@@ -175,10 +183,24 @@ s1_python_interpreter: ""
 # because they read the argument inversely (PKG-008).
 s1_offline_install: true
 
-# Tooling directory inside the package. Only ubuntu_24 is supported here; the
-# older ubuntu_14/18/20/22 trees have no offline path worth using — ubuntu_14's
-# install_everything.sh reaches the internet unconditionally.
-s1_ubuntu_tooling: ubuntu_24
+# Tooling directory inside the package. Empty means derive it from the OS major
+# version — ubuntu_22 on 22.04, ubuntu_24 on 24.04. The vendor also ships
+# ubuntu_14/18/20, which are not wired up: ubuntu_14's install_everything.sh
+# reaches the internet unconditionally, and 18/20 are untested here. Set
+# explicitly to force a specific tree.
+s1_ubuntu_tooling: ""
+
+# The vendor deploy calls bare `python` (roles/app/start_app_container.yml), and
+# no Ubuntu since 20.04 ships /usr/bin/python. On 24.04 the ubuntu_24 pip bundle
+# happens to include python-is-python3, so `dpkg -i pip/*` creates the symlink as
+# a side effect and the call works. The ubuntu_22 bundle does not include it, so
+# the deploy dies ~2 minutes in on "Create default UUID" (PKG-009).
+#
+# This creates the same symlink python-is-python3 would, and only when the path
+# is absent — reproducing what the vendor already causes on the adjacent
+# platform rather than inventing a workaround. Set false to leave the host
+# alone and let the deploy fail as it would unaided.
+s1_ubuntu_provide_python: true
 
 # Two things the vendor scripts leave undone, without which the deploy cannot
 # run: the bundled docker wheels are never installed (PKG-007), and the Python

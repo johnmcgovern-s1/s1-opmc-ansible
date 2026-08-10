@@ -28,16 +28,35 @@
 #                                              Ubuntu does NOT create the
 #                                              documented RHEL path (PKG-005)
 
-- name: Select the expected ansible-playbook path for this platform
+- name: Select the candidate ansible-playbook paths for this platform
+  ansible.builtin.set_fact:
+    s1_bin_candidates: >-
+      {{ s1_ubuntu_playbook_candidates if ansible_os_family == 'Debian'
+         else [s1_documented_playbook_bin] }}
+
+- name: Look for the vendor ansible-playbook
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: s1_bin_stats
+  loop: "{{ s1_bin_candidates }}"
+  when: s1_bin | length == 0
+
+- name: Adopt the first candidate that exists
   ansible.builtin.set_fact:
     s1_expected_bin: >-
-      {{ s1_ubuntu_playbook_bin if ansible_os_family == 'Debian'
-         else s1_documented_playbook_bin }}
+      {{ (s1_bin_stats.results | default([])
+          | selectattr('stat.exists', 'defined')
+          | selectattr('stat.exists')
+          | map(attribute='item') | list | first) | default('') }}
+  when: s1_bin | length == 0
 
-- name: Locate the vendor ansible-playbook
-  ansible.builtin.stat:
-    path: "{{ s1_expected_bin }}"
-  register: s1_bin_stat
+# Kept so the tasks below read the same on both platforms: "found nothing" is
+# an empty s1_expected_bin rather than a stat result.
+- name: Note the candidates when none exist
+  ansible.builtin.set_fact:
+    s1_bin_stat:
+      stat:
+        exists: "{{ (s1_expected_bin | default('') | length) > 0 }}"
   when: s1_bin | length == 0
 
 # Purely diagnostic: its output feeds the failure message below, so it must
@@ -61,9 +80,10 @@
 - name: Fail with the candidates found on the host
   ansible.builtin.fail:
     msg: |
-      The vendor tooling ran, but {{ s1_expected_bin }} does not exist.
+      The vendor tooling ran, but none of the expected paths exist:
+      {{ s1_bin_candidates | join('\n      ') }}
 
-      Candidates on this host:
+      Found on this host:
       {{ s1_bin_search.stdout | default('(none found)') }}
 
       Set s1_playbook_bin (and probably s1_python_interpreter) and re-run.

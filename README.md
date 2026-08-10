@@ -277,12 +277,12 @@ Support is read from the package itself: the `case $RHEL_VERSION` arms in
 `docker_ansible/{rhel/rhel*,ubuntu_*}` directories, checked in all four
 tarballs on 2026-08-04.
 
-| Release | RHEL 7 | RHEL 8 | RHEL 9 | RHEL 10 | Ubuntu 14–22 | Ubuntu 24.04 |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ❌ |
-| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⛔ 24.04 |
-| O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ✅ 24.04 **(I)** |
-| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 24.04 **(I, U)** |
+| Release | RHEL 7 | RHEL 8 | RHEL 9 | RHEL 10 | Ubuntu 14–20 | Ubuntu 22.04 | Ubuntu 24.04 |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ⬜ | ❌ |
+| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⬜ | ⛔ 24.04 |
+| O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⬜ | ✅ 24.04 **(I)** |
+| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 22.04 **(I)** | ✅ 24.04 **(I, U)** |
 
 The **(I)** / **(U)** markers show that on **RHEL 8 and RHEL 9 every release has
 been validated by both routes** — clean-installed directly onto a bare host, and
@@ -302,6 +302,7 @@ could precede O-26.1.1 runs there.
 | rhel01 | RHEL 8.10 | ✅ all four releases | — not run | each verified independently, none down |
 | rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | ubuntu2404 | Ubuntu 24.04.4 | ✅ O-25.4.6, O-26.1.1 (⛔ O-25.4.4) | ✅ the one hop available | O-26.1.1, 21 containers, none down |
+| ubuntu2204 | Ubuntu 22.04.5 | ✅ O-26.1.1 | — not run yet | O-26.1.1, 21 containers, none down |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
@@ -322,21 +323,36 @@ vendor error 20 minutes in.
 
 ### Ubuntu
 
-**24.04 LTS is supported from O-25.4.6.** Both O-25.4.6 and O-26.1.1 install
-cleanly — `failed=0`, 21 containers all healthy, console serving HTTPS — from a
-bare host with no overrides. Older Ubuntu releases are not wired up: `ubuntu_14`
-through `ubuntu_22` ship no usable offline path (`ubuntu_14`'s
-`install_everything.sh` reaches the internet unconditionally), and preflight
-fails with a clear message on anything but 24.04.
+**22.04 and 24.04 LTS are supported**, both from a bare host with no overrides —
+`failed=0`, 21 containers all healthy, console serving HTTPS. 24.04 is validated
+from O-25.4.6; 22.04 for O-26.1.1. `ubuntu_14/18/20` are not wired up and
+preflight refuses them (`ubuntu_14`'s `install_everything.sh` reaches the
+internet unconditionally, so it has no offline path at all).
 
-**O-25.4.4 is the exception, and it is a trap.** It ships the full `ubuntu_24`
-tree and bootstraps without complaint, then dies about two minutes into the
-vendor deploy: `deploy_mgmt.yml` calls bare `python`, which Ubuntu 24.04 does
-not provide. O-25.4.6 does **not** fix that line — it is byte-identical, as are
-both `ubuntu_24` scripts — but its `pip/` bundle happens to include
-`python-is-python3`, which creates `/usr/bin/python` as a side effect of the
-bootstrap. O-25.4.4's bundle does not. `s1_min_version_ubuntu24` therefore gates
-on **25.4.6**, so preflight refuses up front rather than failing mid-deploy.
+The two releases install by **entirely different mechanisms**, which is why the
+bootstrap discovers rather than assumes:
+
+| | `ubuntu_22` | `ubuntu_24` |
+|---|---|---|
+| Ansible | `dpkg -i ansible/*` — distro package, **2.10.8** | `pip --break-system-packages` — **2.15.13** |
+| `ansible-playbook` | `/usr/bin` | `/usr/local/bin` |
+| `docker` Python module | installed by the script | **never installed** — this project supplies it |
+| `readfp` patch | absent, and unnecessary on Python 3.10 | present and **silently broken** |
+| `python-is-python3` | absent | bundled, installed incidentally |
+
+`s1_ubuntu_tooling` derives `ubuntu_<major>` from the OS rather than mapping it,
+and `s1_ubuntu_playbook_candidates` tries both binary locations in order. Adding
+a future Ubuntu should need neither change.
+
+**The bare-`python` problem affects both, and is the reason O-25.4.4 is refused
+on 24.04.** `deploy_mgmt.yml` runs `python -c "import uuid;..."`, and no Ubuntu
+since 20.04 ships `/usr/bin/python`. The line is byte-identical across every
+release examined — the vendor never fixed it. What differs is whether the
+release's `pip/` bundle happens to include `python-is-python3`: `ubuntu_24`'s
+does from O-25.4.6, `ubuntu_22`'s never does. `s1_ubuntu_provide_python` creates
+the same symlink that package would, only when absent, so the deploy no longer
+depends on a packaging accident. `s1_min_version_ubuntu24` still gates 24.04 at
+**25.4.6** because that combination is untested with the symlink in place.
 
 Ubuntu needs its own bootstrap because the vendor ships two entirely separate
 mechanisms. There is **no `offline_installation.sh` outside `rhel/`** — that
@@ -402,11 +418,11 @@ RHEL `S→O` hop — consistent with that divergence being specific to O-25.4.4.
 What varies on Ubuntu is the *bundle contents* and the deploy playbook, not the
 installer.
 
-**What remains for Ubuntu is other releases of it**, not 24.04: `ubuntu_18`,
-`ubuntu_20` and `ubuntu_22` all ship the same two-script offline shape, so the
-bootstrap should port by changing `s1_ubuntu_tooling`. The unknowns there are
-empirical rather than structural — 22.04 ships Python 3.10, so the `readfp`
-fix-up is unnecessary, and its pip predates `--break-system-packages`.
+**22.04 is done too** — O-26.1.1 installs cleanly there, and the bootstrap now
+selects the tooling and binary path per release rather than assuming 24.04's.
+What remains is `ubuntu_18` and `ubuntu_20`, which ship the same two-script
+shape and should follow without structural change, and the upgrade hop on
+22.04.
 
 ### 2. Straight-to-version installs
 
@@ -489,13 +505,14 @@ O-25.4.6 and O-26.1.1 were each installed onto a host reverted to a fresh
 snapshot beforehand — eight installs in total, all reporting `failed=0` with the
 console serving HTTPS.
 
-**Ubuntu 24.04 LTS** is validated for clean installs of O-25.4.6 and O-26.1.1,
-and for the one upgrade hop between them — `failed=0` throughout, 21 containers
-all healthy, console serving HTTPS, from bare hosts with no overrides. The
-vendor's own `deploy_mgmt.yml` runs there unmodified; what this project adds is
-a separate bootstrap path and two fixes for work the vendor's Ubuntu scripts
-omit. O-25.4.4 ships Ubuntu tooling it cannot deploy with and is refused by
-preflight. See [Ubuntu](#ubuntu).
+**Ubuntu 22.04 and 24.04 LTS** are validated — clean installs of O-25.4.6 and
+O-26.1.1 on 24.04 plus the one upgrade hop between them, and O-26.1.1 on 22.04.
+`failed=0` throughout, 21 containers all healthy, console serving HTTPS, from
+bare hosts with no overrides. The vendor's own `deploy_mgmt.yml` runs on both
+unmodified; what this project adds is a separate bootstrap path and fixes for
+work the vendor's Ubuntu scripts omit — which differ by release, since the two
+trees install by different mechanisms. O-25.4.4 ships Ubuntu tooling it cannot
+deploy with and is refused by preflight. See [Ubuntu](#ubuntu).
 
 Exercised against a live host:
 
