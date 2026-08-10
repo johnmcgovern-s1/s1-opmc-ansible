@@ -232,18 +232,15 @@ s1_supported_rhel_majors:
 # because no release that could precede O-26.1.1 will install there.
 s1_min_version_rhel10: "26.1.1"
 
-# Lowest release that actually deploys on Ubuntu 24.04 — which is NOT the
-# first release to ship the tooling.
+# First release shipping docker_ansible/ubuntu_24. S-25.3.2 has no such
+# directory, so as with RHEL 10 there is no chain to upgrade along on this
+# platform — the first release that installs is also the earliest.
 #
-# docker_ansible/ubuntu_24 first appears in O-25.4.4, and its bootstrap runs
-# fine there. But deploy_mgmt.yml calls bare `python` in
-# roles/app/start_app_container.yml ("Create default UUID"), and Ubuntu 24.04
-# has no /usr/bin/python. O-25.4.6 does not fix that line — it is byte-identical
-# — but its ubuntu_24/pip/ bundle adds python-is-python3, which creates the
-# symlink as a side effect of the bootstrap. O-25.4.4's bundle does not, so it
-# fails ~2 minutes into the deploy. Observed on both. See
-# docs-feedback/ubuntu-24-offline-install.md (PKG-009).
-#
-# S-25.3.2 has no ubuntu_24 directory at all, so as with RHEL 10 there is no
-# chain to upgrade along on this platform.
-s1_min_version_ubuntu24: "25.4.6"
+# This was 25.4.6 for a while, because O-25.4.4 bootstraps fine and then dies
+# ~2 minutes into the deploy: deploy_mgmt.yml calls bare `python`, and Ubuntu
+# has no /usr/bin/python. O-25.4.6 never fixed that line — it is byte-identical
+# — its pip bundle merely happens to carry python-is-python3, which creates the
+# symlink incidentally. Now that s1_ubuntu_provide_python supplies it on any
+# release, that distinction no longer gates anything, and O-25.4.4 installs
+# cleanly here (verified: 25 containers, none unexpectedly unhealthy).
+s1_min_version_ubuntu24: "25.4.4"

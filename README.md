@@ -260,7 +260,6 @@ two different things, so the status legend covers both:
 | ⬜ | The vendor package supports it; this project has not tested it |
 | 🔜 | Not supported yet by these playbooks; on the roadmap |
 | ❌ | The vendor package does not ship an installer for it — `offline_installation.sh` exits with `Error: RHEL <version> is not supported` |
-| ⛔ | The vendor ships tooling for it, and it bootstraps — but the release cannot complete a deploy there. Preflight blocks it rather than letting it fail mid-deploy |
 
 A ✅ also records **how** that release was reached, because the two routes run
 different code and are not interchangeable:
@@ -280,7 +279,7 @@ tarballs on 2026-08-04.
 | Release | RHEL 7 | RHEL 8 | RHEL 9 | RHEL 10 | Ubuntu 14–20 | Ubuntu 22.04 | Ubuntu 24.04 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ⬜ | ❌ |
-| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⬜ | ⛔ 24.04 |
+| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⬜ | ✅ 24.04 **(I)** |
 | O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⬜ | ✅ 24.04 **(I)** |
 | O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 22.04 **(I)** | ✅ 24.04 **(I, U)** |
 
@@ -301,7 +300,7 @@ could precede O-26.1.1 runs there.
 | rhel03 | RHEL 10.2 | ✅ O-26.1.1 | ❌ not possible | O-26.1.1, 21 containers, none down |
 | rhel01 | RHEL 8.10 | ✅ all four releases | — not run | each verified independently, none down |
 | rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
-| ubuntu2404 | Ubuntu 24.04.4 | ✅ O-25.4.6, O-26.1.1 (⛔ O-25.4.4) | ✅ the one hop available | O-26.1.1, 21 containers, none down |
+| ubuntu2404 | Ubuntu 24.04.4 | ✅ all three that ship `ubuntu_24` | ✅ the one hop available | O-26.1.1, 21 containers, none down |
 | ubuntu2204 | Ubuntu 22.04.5 | ✅ O-26.1.1 | — not run yet | O-26.1.1, 21 containers, none down |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
@@ -323,11 +322,13 @@ vendor error 20 minutes in.
 
 ### Ubuntu
 
-**22.04 and 24.04 LTS are supported**, both from a bare host with no overrides —
-`failed=0`, 21 containers all healthy, console serving HTTPS. 24.04 is validated
-from O-25.4.6; 22.04 for O-26.1.1. `ubuntu_14/18/20` are not wired up and
-preflight refuses them (`ubuntu_14`'s `install_everything.sh` reaches the
-internet unconditionally, so it has no offline path at all).
+**22.04 and 24.04 LTS are supported**, from a bare host with no overrides —
+`failed=0`, console serving HTTPS, no unexpectedly unhealthy containers. On
+24.04 that covers **every release shipping `ubuntu_24`**: O-25.4.4, O-25.4.6 and
+O-26.1.1, plus the one upgrade hop. 22.04 is validated for O-26.1.1.
+`ubuntu_14/18/20` are not wired up and preflight refuses them (`ubuntu_14`'s
+`install_everything.sh` reaches the internet unconditionally, so it has no
+offline path at all).
 
 The two releases install by **entirely different mechanisms**, which is why the
 bootstrap discovers rather than assumes:
@@ -344,15 +345,19 @@ bootstrap discovers rather than assumes:
 and `s1_ubuntu_playbook_candidates` tries both binary locations in order. Adding
 a future Ubuntu should need neither change.
 
-**The bare-`python` problem affects both, and is the reason O-25.4.4 is refused
-on 24.04.** `deploy_mgmt.yml` runs `python -c "import uuid;..."`, and no Ubuntu
-since 20.04 ships `/usr/bin/python`. The line is byte-identical across every
-release examined — the vendor never fixed it. What differs is whether the
-release's `pip/` bundle happens to include `python-is-python3`: `ubuntu_24`'s
-does from O-25.4.6, `ubuntu_22`'s never does. `s1_ubuntu_provide_python` creates
-the same symlink that package would, only when absent, so the deploy no longer
-depends on a packaging accident. `s1_min_version_ubuntu24` still gates 24.04 at
-**25.4.6** because that combination is untested with the symlink in place.
+**The bare-`python` problem affects every Ubuntu, and used to decide which
+releases worked.** `deploy_mgmt.yml` runs `python -c "import uuid;..."`, and no
+Ubuntu since 20.04 ships `/usr/bin/python`. That line is byte-identical across
+every release examined — the vendor never fixed it. What differed was whether a
+release's `pip/` bundle happened to include `python-is-python3`: `ubuntu_24`'s
+does from O-25.4.6, `ubuntu_22`'s never does. So the platform worked or failed
+on the incidental contents of a bundle.
+
+`s1_ubuntu_provide_python` creates the same symlink that package would, only
+when absent. That removed the dependency entirely, and with it the reason
+O-25.4.4 was refused on 24.04 — it now installs cleanly there, 25 containers,
+none unexpectedly unhealthy. `s1_min_version_ubuntu24` is therefore back to
+**25.4.4**, meaning what it says: the first release that ships the tooling.
 
 Ubuntu needs its own bootstrap because the vendor ships two entirely separate
 mechanisms. There is **no `offline_installation.sh` outside `rhel/`** — that
@@ -391,17 +396,19 @@ Ordered by value, not by effort.
 
 ### 1. Ubuntu 24.04 LTS — install and upgrade
 
-**Done for 24.04.** Both releases that can deploy there — O-25.4.6 and
-O-26.1.1 — install cleanly from a fresh snapshot, and the one upgrade hop
-available runs clean too. O-25.4.4 was attempted and is blocked by the vendor;
-see [Ubuntu](#ubuntu).
+**Done for 24.04.** All three releases shipping `ubuntu_24` — O-25.4.4,
+O-25.4.6 and O-26.1.1 — install cleanly from a fresh snapshot, and the upgrade
+hop runs clean too.
 
-**The chain is one hop, not two.** S-25.3.2 ships no `ubuntu_24` directory, and
-O-25.4.4 ships one it cannot deploy with, so the only chain available is:
+**The chain is two hops.** S-25.3.2 ships no `ubuntu_24` directory at all, so
+24.04 starts where the tooling does:
 
 ```
-O-25.4.6 (clean install)  →  O-26.1.1
+O-25.4.4 (clean install)  →  O-25.4.6  →  O-26.1.1
 ```
+
+Only the second hop has been run. The first is the obvious next step, and would
+give Ubuntu the same full-chain coverage RHEL 8 and 9 have.
 
 Preflight enforces the floor via `s1_min_version_ubuntu24`, in both roles. One
 hop is thinner than hoped, but it is the only exercise the upgrade role gets on

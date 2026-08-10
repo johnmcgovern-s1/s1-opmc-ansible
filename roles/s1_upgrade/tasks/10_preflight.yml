@@ -50,10 +50,9 @@
       - s1_version_resolved | regex_replace('^[SO]-', '')
         is version(s1_min_version_ubuntu24, '>=')
     fail_msg: >-
-      Ubuntu 24.04 support begins at O-{{ s1_min_version_ubuntu24 }}, so the hop
-      to {{ s1_version_resolved }} cannot run here. Earlier releases either ship
-      no ubuntu_24 directory or ship one whose deploy calls bare `python`, which
-      Ubuntu 24.04 does not provide.
+      Ubuntu 24.04 support begins at O-{{ s1_min_version_ubuntu24 }}, the first
+      release shipping a docker_ansible/ubuntu_24 directory, so the hop to
+      {{ s1_version_resolved }} cannot run here.
   when:
     - ansible_distribution == 'Ubuntu'
     - ansible_distribution_major_version == '24'

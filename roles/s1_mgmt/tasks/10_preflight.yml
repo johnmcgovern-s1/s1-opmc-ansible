@@ -25,25 +25,20 @@
     - not s1_allow_unsupported_os | bool
     - ansible_distribution == 'RedHat'
 
-# Gated on the release, checked before staging. Note this is NOT simply "does
-# the tooling ship" — O-25.4.4 ships ubuntu_24 and still cannot deploy. See the
-# s1_min_version_ubuntu24 comment in defaults/main.yml.
-- name: Assert this release can actually deploy on Ubuntu 24.04
+# Gated on the release shipping ubuntu_24 at all — checked before staging, so
+# the failure is a clear message rather than a missing directory at bootstrap.
+- name: Assert this release ships Ubuntu 24.04 tooling
   ansible.builtin.assert:
     that:
       - s1_prefix == 'O'
       - s1_version_resolved | regex_replace('^[SO]-', '')
         is version(s1_min_version_ubuntu24, '>=')
     fail_msg: |
-      {{ s1_version_resolved }} cannot complete a deploy on Ubuntu 24.04.
+      {{ s1_version_resolved }} ships no docker_ansible/ubuntu_24 directory.
       Install O-{{ s1_min_version_ubuntu24 }} or later on this platform.
 
-      S-25.3.2 ships no docker_ansible/ubuntu_24 directory at all.
-
-      O-25.4.4 does ship it, and bootstraps cleanly — but deploy_mgmt.yml calls
-      bare `python` ("Create default UUID"), which does not exist on Ubuntu
-      24.04. O-25.4.6 bundles python-is-python3, which creates the symlink; the
-      O-25.4.4 bundle does not, so it fails ~2 minutes into the deploy.
+      S-25.3.2 predates Ubuntu 24.04 support entirely, so as with RHEL 10 there
+      is no earlier release to upgrade from here.
     success_msg: >-
       {{ s1_version_resolved }} deploys on Ubuntu 24.04.
   when:
