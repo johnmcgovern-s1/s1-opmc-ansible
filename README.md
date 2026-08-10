@@ -435,7 +435,10 @@ a record of what the gap was and why it mattered.
 ### 3. The RHEL 10 kernel-reboot guard
 
 `40_bootstrap.yml` carries a guard that has never been triggered on a live host
-— `source review` evidence, not `observed`.
+— `source review` evidence, not `observed`. Two independent RHEL 10.2 installs
+have now run without it firing, on standard (non-Marketplace) images, which is
+consistent with where the vendor says it applies rather than evidence the guard
+is wrong.
 
 On RHEL 10, `offline_installation.sh` checks for kernel modules before
 installing `docker-ce` (RHEL 10's `iptables-nft` has a conditional dependency on
@@ -477,8 +480,8 @@ S-25.3.2  →  O-25.4.4  →  O-25.4.6  →  O-26.1.1
 ```
 
 **RHEL 10.2** is validated for a clean O-26.1.1 install — `failed=0`, 21
-containers, console serving HTTPS. There is no chain to run there; see
-[RHEL 10.2 notes](#rhel-102-notes).
+containers, console serving HTTPS, at unmodified defaults. There is no chain to
+run there; see [RHEL 10.2 notes](#rhel-102-notes).
 
 **RHEL 8.10 and RHEL 9.7** additionally have every release validated as a
 *straight* clean install, not only as an upgrade target: S-25.3.2, O-25.4.4,
@@ -555,12 +558,8 @@ differs from the earlier platforms:
   vendor documents it as mostly affecting AWS Marketplace images, and this
   host (a standard install) did not hit it — so that guard remains untested.
 
-This VM had **7.5 GB RAM and 4 vCPUs**, below both floors, run with
-`-e s1_min_ram_gb=7`. It finished clean but settled at ~6.9 GB used with
-~1.5 GB of swap in play. That is a data point, not a recommendation — there was
-no headroom, and nothing here justifies lowering the default floor. RHEL 8.10
-and RHEL 9.7 have since been re-validated at 16 GB against unmodified defaults;
-RHEL 10.2 has not.
+Validated at the playbook's unmodified defaults, with no overrides — 16 GB and
+8 vCPU, finishing with ~6.5 GB still available and swap essentially untouched.
 
 **Not yet exercised:** the Postgres 11→15 migration path (`upgrade_postgres` /
 `dump_dir` — every console tested was already on 15), any upgrade hop on
