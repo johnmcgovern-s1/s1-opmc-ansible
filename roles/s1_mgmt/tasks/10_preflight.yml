@@ -46,24 +46,19 @@
     - ansible_distribution == 'Ubuntu'
     - ansible_distribution_major_version == '24'
 
-# 22.04 needs no version floor of its own. Its blocker was the same bare-`python`
-# call, which s1_ubuntu_provide_python resolves on any release rather than
-# depending on a bundle happening to carry python-is-python3. Whether a given
-# package ships ubuntu_22 at all is checked at bootstrap, against the unpacked
-# tree, which is more direct than a version table.
-- name: Assert an O-prefix release on Ubuntu 22.04
-  ansible.builtin.assert:
-    that:
-      - s1_prefix == 'O'
-    fail_msg: >-
-      {{ s1_version_resolved }} is an S-prefix release. Only O-prefix packages
-      have been validated on Ubuntu; S-25.3.2 predates the Ubuntu work here.
-    success_msg: >-
-      {{ s1_version_resolved }} on Ubuntu 22.04.
-  when:
-    - not s1_allow_unsupported_os | bool
-    - ansible_distribution == 'Ubuntu'
-    - ansible_distribution_major_version == '22'
+# 22.04 needs no gate of its own, of either kind.
+#
+# No version floor: its blocker was the same bare-`python` call, which
+# s1_ubuntu_provide_python resolves on any release rather than depending on a
+# bundle happening to carry python-is-python3.
+#
+# And no prefix restriction either — unlike ubuntu_24, which first appears in
+# O-25.4.4, `ubuntu_22` ships in every package examined including S-25.3.2. So
+# 22.04 is the one Ubuntu where the full S -> O chain is available, the same
+# shape as RHEL 8 and 9.
+#
+# Whether a given package ships ubuntu_22 at all is checked at bootstrap against
+# the unpacked tree, which is more direct than any table here.
 
 - name: Fail on an Ubuntu release this playbook has not been built for
   ansible.builtin.fail:

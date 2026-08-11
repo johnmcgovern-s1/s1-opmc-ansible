@@ -278,10 +278,10 @@ tarballs on 2026-08-04.
 
 | Release | RHEL 7 | RHEL 8 | RHEL 9 | RHEL 10 | Ubuntu 14–20 | Ubuntu 22.04 | Ubuntu 24.04 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ⬜ | ❌ |
-| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⬜ | ✅ 24.04 **(I)** |
-| O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ⬜ | ✅ 24.04 **(I, U)** |
-| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 22.04 **(I)** | ✅ 24.04 **(I, U)** |
+| S-25.3.2 | ⬜ | ✅ 8.10 **(I)** | ✅ 9.7 **(I)** | ❌ | 🔜 | ✅ 22.04 **(I)** | ❌ |
+| O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ✅ 22.04 **(U)** | ✅ 24.04 **(I)** |
+| O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ✅ 22.04 **(U)** | ✅ 24.04 **(I, U)** |
+| O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 22.04 **(I, U)** | ✅ 24.04 **(I, U)** |
 
 The **(I)** / **(U)** markers show that on **RHEL 8 and RHEL 9 every release has
 been validated by both routes** — clean-installed directly onto a bare host, and
@@ -301,7 +301,7 @@ could precede O-26.1.1 runs there.
 | rhel01 | RHEL 8.10 | ✅ all four releases | — not run | each verified independently, none down |
 | rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | ubuntu2404 | Ubuntu 24.04.4 | ✅ all three that ship `ubuntu_24` | ✅ both hops | O-26.1.1, 21 containers, none down |
-| ubuntu2204 | Ubuntu 22.04.5 | ✅ O-26.1.1 | — not run yet | O-26.1.1, 21 containers, none down |
+| ubuntu2204 | Ubuntu 22.04.5 | ✅ S-25.3.2, O-26.1.1 | ✅ all three hops | O-26.1.1, 21 containers, none down |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
@@ -322,10 +322,19 @@ vendor error 20 minutes in.
 
 ### Ubuntu
 
-**22.04 and 24.04 LTS are supported**, from a bare host with no overrides —
-`failed=0`, console serving HTTPS, no unexpectedly unhealthy containers. On
-24.04 that covers **every release shipping `ubuntu_24`**: O-25.4.4, O-25.4.6 and
-O-26.1.1, plus the one upgrade hop. 22.04 is validated for O-26.1.1.
+**22.04 and 24.04 LTS are supported**, from bare hosts with no overrides —
+`failed=0`, console serving HTTPS, no unexpectedly unhealthy containers.
+
+- **22.04** carries the **full chain**: S-25.3.2 installs, then all three hops
+  through to O-26.1.1, plus a direct O-26.1.1 install. Same coverage as RHEL 8
+  and 9.
+- **24.04** covers every release shipping `ubuntu_24` — O-25.4.4, O-25.4.6 and
+  O-26.1.1 — by install and by both hops.
+
+The difference is the packages themselves: **`ubuntu_22` ships in every release
+including S-25.3.2, while `ubuntu_24` first appears in O-25.4.4.** So 22.04 is
+the only Ubuntu where the S→O prefix transition can be exercised at all.
+
 `ubuntu_14/18/20` are not wired up and preflight refuses them (`ubuntu_14`'s
 `install_everything.sh` reaches the internet unconditionally, so it has no
 offline path at all).
@@ -408,11 +417,13 @@ S-25.3.2 ships no `ubuntu_24` directory at all, so 24.04 starts where the
 tooling does. That gives Ubuntu 24.04 the same coverage RHEL 8 and 9 have:
 every release reachable by install and by upgrade.
 
-Worth noting from the first hop: the container set drops 25 → 21 there, and
-does so **cleanly** — no stale image, nothing stranded. On RHEL the `S→O`
-transition leaves a retired container behind still running the previous
-release's image, which the next hop then clears. That appears to be specific to
-the prefix change rather than a property of retirement hops in general.
+Worth noting from the hops: the container set drops 25 → 21 on
+`O-25.4.4 → O-25.4.6`, and does so **cleanly** — no stale image, nothing
+stranded. The `S→O` transition behaves differently: it leaves a retired
+container running the *previous* release's image, which the following hop then
+clears. Reproduced identically on RHEL and on Ubuntu 22.04, so it belongs to the
+prefix change rather than to retirement hops in general, and it is bounded to
+one release rather than accumulating.
 
 Preflight enforces the floor via `s1_min_version_ubuntu24`, in both roles. One
 hop is thinner than hoped, but it is the only exercise the upgrade role gets on
@@ -429,11 +440,11 @@ RHEL `S→O` hop — consistent with that divergence being specific to O-25.4.4.
 What varies on Ubuntu is the *bundle contents* and the deploy playbook, not the
 installer.
 
-**24.04 is complete by both routes**, and **22.04 has O-26.1.1 installing
-cleanly** — the bootstrap selects tooling and binary path per release rather
-than assuming 24.04's. What remains is the upgrade chain on 22.04, and
-`ubuntu_18` / `ubuntu_20`, which ship the same two-script shape and should
-follow without structural change.
+**Done.** 24.04 is complete by both routes, and 22.04 carries the full
+four-release chain — the same coverage RHEL 8 and 9 have. The bootstrap selects
+tooling and binary path per release rather than assuming one layout, so
+`ubuntu_18` and `ubuntu_20` should follow without structural change if they are
+ever wanted.
 
 ### 2. Straight-to-version installs
 
@@ -516,14 +527,15 @@ O-25.4.6 and O-26.1.1 were each installed onto a host reverted to a fresh
 snapshot beforehand — eight installs in total, all reporting `failed=0` with the
 console serving HTTPS.
 
-**Ubuntu 22.04 and 24.04 LTS** are validated. On 24.04 that is every release
-shipping the tooling — O-25.4.4, O-25.4.6 and O-26.1.1 — by clean install and
-by the full upgrade chain between them; on 22.04, O-26.1.1 by clean install.
-`failed=0` throughout, console serving HTTPS, nothing unexpectedly unhealthy,
-from bare hosts with no overrides. The vendor's own `deploy_mgmt.yml` runs on
-both unmodified; what this project adds is a separate bootstrap path and fixes
-for work the vendor's Ubuntu scripts omit — which differ by release, since the
-two trees install by different mechanisms. See [Ubuntu](#ubuntu).
+**Ubuntu 22.04 and 24.04 LTS** are validated. 22.04 carries the full
+four-release chain — S-25.3.2 installed, then all three hops to O-26.1.1 — the
+same coverage RHEL 8 and 9 have. 24.04 covers every release shipping its tooling
+by install and by both hops. `failed=0` throughout, console serving HTTPS,
+nothing unexpectedly unhealthy, from bare hosts with no overrides. The vendor's
+own `deploy_mgmt.yml` runs on both unmodified; what this project adds is a
+separate bootstrap path and fixes for work the vendor's Ubuntu scripts omit —
+which differ by release, since the two trees install by different mechanisms.
+See [Ubuntu](#ubuntu).
 
 Exercised against a live host:
 

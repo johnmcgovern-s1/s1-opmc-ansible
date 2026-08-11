@@ -57,17 +57,9 @@
     - ansible_distribution == 'Ubuntu'
     - ansible_distribution_major_version == '24'
 
-# 22.04 has no floor of its own — see the equivalent note in the install role.
-- name: Assert an O-prefix release on Ubuntu 22.04
-  ansible.builtin.assert:
-    that:
-      - s1_prefix == 'O'
-    fail_msg: >-
-      {{ s1_version_resolved }} is an S-prefix release. Only O-prefix packages
-      have been validated on Ubuntu.
-  when:
-    - ansible_distribution == 'Ubuntu'
-    - ansible_distribution_major_version == '22'
+# 22.04 has no floor and no prefix gate — see the equivalent note in the install
+# role. `ubuntu_22` ships in every package examined, S-25.3.2 included, so the
+# full S -> O chain is available there.
 
 - name: Fail on an Ubuntu release this playbook has not been built for
   ansible.builtin.fail:
