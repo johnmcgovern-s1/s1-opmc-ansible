@@ -603,10 +603,20 @@ Validated at the playbook's unmodified defaults, with no overrides — 16 GB and
 
 **Not yet exercised:** the Postgres 11→15 migration path (`upgrade_postgres` /
 `dump_dir` — every console tested was already on 15), any upgrade hop on
-RHEL 10, RHEL 7, and Ubuntu releases before 24.04. The [Roadmap](#roadmap) says
+RHEL 10, RHEL 7, and Ubuntu releases before 22.04. The [Roadmap](#roadmap) says
 which of those are being picked up and in what order.
 
 Behaviour here was derived from the vendor's own `offline_installation.sh`,
 `deploy_mgmt.yml` and `group_vars/all/config.yml`, plus SentinelOne's
 self-hosted install and upgrade articles. Those are behind a support login and
 are deliberately not redistributed in this repository.
+
+## License
+
+MIT — see [LICENSE.md](LICENSE.md).
+
+The SentinelOne deployment packages this automates are **not** covered by that
+licence. They are SentinelOne's own software, distributed under your agreement
+with SentinelOne, and are not redistributed here — see
+[Repository layout](#repository-layout) for what `installers/` expects you to
+supply yourself.
