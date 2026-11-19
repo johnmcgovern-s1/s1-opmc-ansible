@@ -33,6 +33,27 @@
     - install_docker_and_pip.sh
     - install_ansible.sh
 
+# Both vendor scripts reinstall packages (docker-ce, the pinned Ansible) with no
+# way to tell they already ran, so on a finished console a re-run would
+# reinstall Docker under live containers. Same gate as 60_deploy.yml: once
+# /s1/conf/settings.ini exists the tooling is already in place and is left
+# alone unless s1_force_redeploy is set. The runtime discovery that follows in
+# 40_bootstrap.yml still runs, so s1_bin / s1_py are resolved either way.
+- name: Check whether the console is already installed
+  ansible.builtin.stat:
+    path: /s1/conf/settings.ini
+  register: s1_ubuntu_installed
+
+- name: Report that the vendor tooling install is being skipped
+  ansible.builtin.debug:
+    msg: >-
+      /s1/conf/settings.ini exists, so the Docker and Ansible install scripts
+      are skipped to avoid reinstalling packages under a running console. Set
+      s1_force_redeploy=true to run them anyway.
+  when:
+    - s1_ubuntu_installed.stat.exists
+    - not s1_force_redeploy | bool
+
 - name: Install docker-ce and pip
   ansible.builtin.command: >-
     ./install_docker_and_pip.sh
@@ -41,6 +62,7 @@
     chdir: "{{ s1_ubuntu_dir }}"
   register: s1_ubuntu_docker
   changed_when: true
+  when: (not s1_ubuntu_installed.stat.exists) or (s1_force_redeploy | bool)
 
 - name: Install the vendor-pinned Ansible (Ubuntu)
   ansible.builtin.command: >-
@@ -50,6 +72,7 @@
     chdir: "{{ s1_ubuntu_dir }}"
   register: s1_ubuntu_ansible
   changed_when: true
+  when: (not s1_ubuntu_installed.stat.exists) or (s1_force_redeploy | bool)
 
 - name: Ensure the Docker daemon is enabled and running
   ansible.builtin.systemd:
