@@ -15,7 +15,7 @@ SentinelOne's self-hosted Management Console ships as a multi-GB TGZ containing 
 Two playbooks, run from a **control node over SSH** — deliberately never on the target box itself, because the vendor package installs its own pinned Ansible/Python onto the target, and running this playbook there would collide with it over `/usr/bin/python` alternatives and `$PATH`.
 
 - **`install.yml`** — clean install, one run.
-- **`upgrade.yml`** — **one version hop per run**, chain-enforced (`S-25.3.2 → O-25.4.4 → O-25.4.6 → O-26.1.1`); skipping a hop is refused outright unless a human overrides it.
+- **`upgrade.yml`** — **one version hop per run**, chain-enforced (`S-25.3.2 → O-25.4.4 → O-25.4.6 → O-26.1.1 → O-26.3.1`); skipping a hop is refused outright unless a human overrides it.
 
 Each playbook is a thin wrapper: a `raw`-only Python bootstrap play (has to run before Ansible facts can even be gathered on RHEL 8, which ships Python 3.6), then a role. Inside the role, work is split into **numbered, independently-taggable stages** (`00_facts` → `10_preflight` → `20_stage` → `30_certs` → `40_bootstrap` → `50_config` → `60_deploy` → `70_post` → `80_verify`), so `--tags verify` or `--tags preflight` re-runs just that slice.
 
@@ -34,7 +34,7 @@ These are the parts that generalize beyond "an SE's install script" — they're 
 
 ### How it's validated
 
-There's a real test matrix (RHEL 8.10/9.7/10.2, Ubuntu 22.04/24.04, both clean-install and full-upgrade-chain routes), run against live hosts with a documented status legend (validated / in progress / vendor-supports-untested / roadmap / vendor-doesn't-support). This is functionally the project's CI record — there's no way to containerize an OS-level vendor installer that reboots hosts and manages Docker, so validation happens on real VMs, snapshotted between runs.
+There's a real test matrix (RHEL 8.10/9.x/10.x, Ubuntu 22.04/24.04, now including O-26.3.1 on RHEL 9.9, RHEL 10.3 and Ubuntu 24.04.5, both clean-install and full-upgrade-chain routes), run against live hosts with a documented status legend (validated / in progress / vendor-supports-untested / roadmap / vendor-doesn't-support). This is functionally the project's CI record — there's no way to containerize an OS-level vendor installer that reboots hosts and manages Docker, so validation happens on real VMs, snapshotted between runs.
 
 ---
 

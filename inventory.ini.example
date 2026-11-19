@@ -5,6 +5,8 @@
 
 [s1_mgmt]
 console.example.com
+# Optional per-host console URL (written into the console config):
+#console.example.com s1_accessible_url=https://console.example.com
 
 [s1_mgmt:vars]
 # The account you SSH in as. This also determines which home directory the
@@ -14,6 +16,11 @@ ansible_user=CHANGEME
 
 ansible_become=true
 ansible_become_method=sudo
+
+# To push the package from this machine instead of pre-staging it on each target,
+# set these (here, in group_vars/all/main.yml, or with -e). See INSTALL.md.
+#s1_package_path=/var/tmp/sentinel_mgmt_o_26_3_1_032.tar.gz
+#s1_package_local_src=~/Downloads/sentinel_mgmt_o_26_3_1_032.tar.gz
 
 # ansible_python_interpreter is deliberately NOT set. The first play in
 # install.yml / upgrade.yml probes the target and installs python3.11 if needed

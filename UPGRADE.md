@@ -15,7 +15,7 @@ Budget **40–60 minutes per hop**; the vendor deploy alone takes ~20.
 Versions must not be skipped. From the vendor's path table:
 
 ```
-S-25.3.2.96  →  O-25.4.4.22  →  O-25.4.6.34  →  O-26.1.1.009
+S-25.3.2.96  →  O-25.4.4.22  →  O-25.4.6.34  →  O-26.1.1.009  →  O-26.3.1.032
 ```
 
 **S-25.3.2 is the earliest supported source here.** It is also the final
@@ -33,8 +33,8 @@ Illegal upgrade hop — versions must not be skipped.
   expected next  : O-25.4.4
 ```
 
-Take a fresh snapshot between hops. To go from S-25.3.2 to O-26.1.1 you run the
-playbook three times, staging a different package each time.
+Take a fresh snapshot between hops. To go from S-25.3.2 to O-26.3.1 you run the
+playbook four times, staging a different package each time.
 
 Adding a new release is a one-line change — append it to `s1_upgrade_order` in
 [roles/s1_upgrade/defaults/main.yml](roles/s1_upgrade/defaults/main.yml).
@@ -344,6 +344,20 @@ Singularity Platform version" article and the vendor logic in
 | S-25.3.2 → O-25.4.4 | `ok=320 changed=136 failed=0` | `ok=75 changed=10 failed=0` | S→O prefix transition; MongoDB 4.4 → 5.0 |
 | O-25.4.4 → O-25.4.6 | `ok=308 changed=127 failed=0` | `ok=76 changed=10 failed=0` | 26 → 21 containers (deprecated ones removed) |
 | O-25.4.6 → O-26.1.1 | `ok=308 changed=126 failed=0` | `ok=76 changed=10 failed=0` | Final state: 21 containers, none down |
+
+**O-26.1.1 → O-26.3.1** (tested November 2026, each from a fresh O-26.1.1 clean
+install snapshotted before the hop; both confirmed in the console as O-26.3.1.32):
+
+| Host | Result | Notes |
+|---|---|---|
+| RHEL 9.9 | `ok=92 changed=15 failed=0` | 21 containers, none down |
+| Ubuntu 24.04.5 | `ok=104 changed=14 failed=0` | 21 containers, none down |
+
+Both preserved `/data/s1` and `/data/uploads`, ran with no Postgres action, and
+left Docker's systemd start limits at their defaults. The upgrade role applies
+the same temporary Docker start-limit drop-in as the install — see
+[O-26.3.1 notes](README.md#o-2631-notes). RHEL 8.10 and Ubuntu 22.04 have not
+been tested on this hop.
 
 (The RHEL 8.10 figures are the vendor playbook's recap; the RHEL 9.7 figures are
 this playbook's. Both reported `failed=0` at each layer.)

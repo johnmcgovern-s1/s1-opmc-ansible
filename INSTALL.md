@@ -1,6 +1,7 @@
 # INSTALL — SentinelOne Management Console
 
-Clean installation on RHEL 8.10 / 9.7. Budget **40–60 minutes**; the vendor
+Clean installation on RHEL 8.10 / 9.x / 10.x and Ubuntu 22.04 / 24.04 (see the
+[test matrix](README.md#test-matrix) for which release runs where). Budget **40–60 minutes**; the vendor
 deploy alone takes ~20.
 
 ---
@@ -146,12 +147,41 @@ by accident.
 
 ---
 
+## Uploading the package from the control node
+
+Instead of staging the tarball on every target by hand, set the path to it **on
+the control node** and the playbook pushes it during preflight:
+
+```bash
+ansible-playbook install.yml --limit myhost \
+  -e s1_package_path=/var/tmp/sentinel_mgmt_o_26_3_1_032.tar.gz \
+  -e s1_package_local_src=~/Downloads/sentinel_mgmt_o_26_3_1_032.tar.gz
+```
+
+or put both in `group_vars/all/main.yml`. `s1_package_path` is where it lands on
+the target. Behaviour:
+
+- The two filenames must match, and the file is refused if it is missing locally.
+- If the target already has a file of the same size, the upload is skipped.
+- Free space on the target is checked first, and the size is verified afterwards.
+- `rsync` (default) resumes an interrupted upload (`--partial --inplace`).
+  `s1_upload_method: copy` needs neither `rsync` nor the `ansible.posix`
+  collection, but restarts from zero if interrupted.
+- The upload happens before the checksum check, so a corrupt or truncated
+  transfer is still caught against `checksums.yml` before anything is unpacked.
+
+`upgrade.yml` uses the same two variables.
+
+---
+
 ## Before you start
 
 On the **target server**:
 
-- RHEL 8.x or 9.x, x86_64
+- RHEL 8.x, 9.x or 10.x, or Ubuntu 22.04 / 24.04, x86_64 (RHEL 10 needs
+  O-26.1.1 or later)
 - SSH access with passwordless `sudo`
+- `rsync`, if you use the package upload (otherwise set `s1_upload_method: copy`)
 - **A CPU with AVX.** O-prefix packages ship MongoDB 5.0+, which requires it.
   Without AVX the mongo container crash-loops and the deploy fails ~7 minutes
   in at "Wait for mongo to be available".
@@ -263,7 +293,9 @@ map to a host group named `vault`, which does not exist, so it would never be
 loaded — and the missing password would only surface at preflight.
 
 Password rules: at least 10 characters, 3+ of uppercase / lowercase / digits /
-symbols, no whitespace, and no `"` or `'`. The vendor playbook also rejects
+symbols, no whitespace, and no `"` or `'`. **The vendor's `config.yml` says at
+least 15 characters.** No vendor playbook enforces that (a 12-character password
+installed cleanly on O-26.3.1), but use 15 or more to follow the vendor. The vendor playbook also rejects
 `sentinel`, `sentinel1` and `sentinel1!`.
 
 ### 5. Preflight only

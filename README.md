@@ -2,9 +2,10 @@
 
 A one-shot Ansible playbook that installs the **SentinelOne self-hosted
 (on-premises) Singularity Platform Management Console** (TGZ deployment) on
-Red Hat Enterprise Linux **8.10**, **9.7** and **10.2**. See the
-[test matrix](#test-matrix) for exactly which release runs where — RHEL 10
-takes O-26.1.1 and nothing earlier.
+Red Hat Enterprise Linux **8.10**, **9.x** and **10.x**, and Ubuntu **22.04** /
+**24.04**. See the [test matrix](#test-matrix) for exactly which release runs
+where — RHEL 10 takes O-26.1.1 and nothing earlier. The latest release covered
+is **O-26.3.1**.
 
 ```bash
 ansible-playbook install.yml --ask-vault-pass                       # clean install
@@ -14,7 +15,11 @@ ansible-playbook upgrade.yml -e s1_snapshot_confirmed=true          # one upgrad
 See [INSTALL.md](INSTALL.md) for the full procedure, including where to place
 the deployment package and your certificates, and [UPGRADE.md](UPGRADE.md) for
 upgrading an existing console along the supported path
-`S-25.3.2 → O-25.4.4 → O-25.4.6 → O-26.1.1`.
+`S-25.3.2 → O-25.4.4 → O-25.4.6 → O-26.1.1 → O-26.3.1`.
+
+The package can be pushed from the control node to each target, so it does not
+have to be baked into VM images — see
+[Uploading the package](INSTALL.md#uploading-the-package-from-the-control-node).
 
 ---
 
@@ -166,8 +171,10 @@ requirement**. Disk checks are advisory by default; set
 
 ## Requirements
 
-- **Control node**: Ansible 2.14+, the `community.general` collection
-  (`ansible-galaxy collection install -r requirements.yml`). For a fully
+- **Control node**: Ansible 2.14+, the `community.general` and `ansible.posix`
+  collections (`ansible-galaxy collection install -r requirements.yml`).
+  `ansible.posix` is only used by the optional package upload, and `rsync` must
+  also be installed on the target for it (`s1_upload_method=copy` needs neither). For a fully
   air-gapped RHEL 8 target with no repositories, use ansible-core ≤ 2.16 —
   see [Air-gapped operation](#air-gapped-operation).
 - **Target**: RHEL 8.x, 9.x or 10.x, x86_64, SSH access with passwordless sudo.
@@ -282,6 +289,7 @@ tarballs on 2026-08-04.
 | O-25.4.4 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ✅ 22.04 **(U)** | ✅ 24.04 **(I)** |
 | O-25.4.6 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ❌ | 🔜 | ✅ 22.04 **(U)** | ✅ 24.04 **(I, U)** |
 | O-26.1.1 | ⬜ | ✅ 8.10 **(I, U)** | ✅ 9.7 **(I, U)** | ✅ 10.2 **(I)** | 🔜 | ✅ 22.04 **(I, U)** | ✅ 24.04 **(I, U)** |
+| O-26.3.1 | ⬜ | ⏳ not yet tested | ✅ 9.9 **(I, U)** | ✅ 10.3 **(I)** | 🔜 | ⏳ not yet tested | ✅ 24.04.5 **(I, U)** |
 
 The **(I)** / **(U)** markers show that on **RHEL 8 and RHEL 9 every release has
 been validated by both routes** — clean-installed directly onto a bare host, and
@@ -302,6 +310,9 @@ could precede O-26.1.1 runs there.
 | rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | ubuntu2404 | Ubuntu 24.04.4 | ✅ all three that ship `ubuntu_24` | ✅ both hops | O-26.1.1, 21 containers, none down |
 | ubuntu2204 | Ubuntu 22.04.5 | ✅ S-25.3.2, O-26.1.1 | ✅ all three hops | O-26.1.1, 21 containers, none down |
+| rhel97 (2026-11) | RHEL 9.9 | ✅ O-26.3.1, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1 | O-26.3.1.32, 21 containers, none down |
+| rhel102 (2026-11) | RHEL 10.3 | ✅ O-26.3.1 | ❌ not possible | O-26.3.1, 21 containers, none down |
+| ubuntu2404 (2026-11) | Ubuntu 24.04.5 | ✅ O-26.3.1, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1 | O-26.3.1.32, 21 containers, none down |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
@@ -550,6 +561,44 @@ Exercised against a live host:
   AVX mandatory
 
 Final state on both platforms: O-26.1.1, 21 containers, none down.
+
+### O-26.3.1 notes
+
+Tested November 2026 on RHEL 9.9, RHEL 10.3 and Ubuntu 24.04.5. Each result was
+confirmed in the console, with Help > About showing **O-26.3.1.32**. The OS
+minor versions are what the hosts were on after `dnf update` / `apt upgrade`, not
+the 9.7 / 10.2 used in earlier campaigns.
+
+- **Docker start-limit workaround.** O-26.3.1's deploy has a new `stig_docker`
+  role that writes a CIS-hardened `/etc/docker/daemon.json` and restarts Docker.
+  The deploy also stops and starts Docker several times within a minute, and
+  systemd allows only 3 starts per minute (`StartLimitBurst=3`), so the fourth
+  start fails with `start-limit-hit` at *"Restart Docker service to apply daemon
+  hardening"*. This failed on RHEL 10.3 and Ubuntu 24.04.5, and RHEL 9.9 only
+  passed on timing. Both roles now write a temporary drop-in
+  (`/etc/systemd/system/docker.service.d/zz-opmc-start-limit.conf`,
+  `StartLimitIntervalSec=0`) for the duration of the vendor run and remove it
+  afterwards, even on failure, so the host keeps systemd's default. Set
+  `s1_docker_start_limit_workaround: false` to disable it. This is a vendor
+  race, not an environment problem, and is worth reporting upstream.
+- **Docker hardening.** The resulting `daemon.json` sets `icc: false`,
+  `no-new-privileges`, `live-restore`, `userland-proxy: false`, `overlay2` and
+  json-file log options (from the vendor role; on the test hosts only
+`live-restore` and `overlay2` were checked directly after install and upgrade).
+- **Bundled Docker version.** The package ships Docker 28.5.2 on RHEL 9 and
+  29.1.3 on Ubuntu 24.04. The vendor's own role warns that 29.1.3 is below its
+  recorded minimum for Ubuntu 24. It is a warning only.
+- **Upgrade from O-26.1.1** ran with `failed=0` on RHEL 9.9 and Ubuntu 24.04.5:
+  21 containers, none unexpectedly down, `/data/s1` and `/data/uploads`
+  preserved (`/data/uploads -> /uploads` unchanged, no stray `/uploads`), and no
+  Postgres action for the hop. RHEL 10 is install-only, as before.
+- **Re-running `install.yml` on a finished Ubuntu host** is idempotent
+  (`changed=0`). The Ubuntu bootstrap skips the vendor Docker and Ansible install
+  scripts when `/s1/conf/settings.ini` exists, because they reinstall packages
+  under live containers. RHEL's bootstrap does not have this gate yet and has not
+  been re-run on a finished host.
+- **Not yet tested on O-26.3.1:** RHEL 8.10, Ubuntu 22.04, and Ubuntu 26.04
+  (the package ships no `ubuntu_26` tooling, so it is expected to be refused).
 
 ### RHEL 9.7 notes
 
