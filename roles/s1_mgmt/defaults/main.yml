@@ -6,6 +6,17 @@
 # Absolute path to the pre-staged .tar.gz ON THE TARGET SERVER.
 s1_package_path: /var/tmp/SentinelOne_MGMT_S_25_3_2_096.tar.gz
 
+# Optional: path to the same file ON THE CONTROL NODE. When set, the playbook
+# uploads it to s1_package_path during preflight (skipped if the target already
+# has a file of the right size). Empty = the package must already be on the
+# target. The filenames must match. Pass per run to avoid editing files:
+#   -e s1_package_local_src=~/Downloads/sentinel_mgmt_o_26_3_1_032.tar.gz
+s1_package_local_src: ""
+
+# rsync (default): resumable, needs rsync on the target and the ansible.posix
+# collection. copy: needs nothing extra but restarts from zero if interrupted.
+s1_upload_method: rsync
+
 # Sidecar of known-good SHA256 sums, checked before the package is unpacked.
 # The vendor's download service is unreliable and truncated/corrupt tarballs
 # otherwise fail deep inside the deploy.

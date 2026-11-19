@@ -5,3 +5,7 @@ collections:
   # in /s1/conf/settings.ini after deployment.
   - name: community.general
     version: ">=7.0.0"
+  # Provides ansible.posix.synchronize (rsync), used to upload the deployment
+  # package from the control node when s1_package_local_src is set.
+  - name: ansible.posix
+    version: ">=1.5.0"

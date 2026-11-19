@@ -1,0 +1,135 @@
+---
+# Optional: push the deployment package from the control node to the target, so
+# it does not have to be baked into the OS image or copied by hand.
+#
+# Enabled by setting s1_package_local_src (a path on the CONTROL NODE). Left
+# empty, nothing here runs and the package must already be at s1_package_path.
+#
+# Idempotent: when the target already holds a file of the same size at
+# s1_package_path, nothing is sent. Size is the cheap check; the SHA256 against
+# checksums.yml is still done at staging (20_stage.yml), so a bad transfer is
+# caught before anything is unpacked.
+#
+# rsync is the default because it resumes: a dropped connection mid-transfer
+# keeps what already arrived (--partial --inplace) instead of restarting a
+# ~6 GB copy. The `copy` method needs nothing on the target but cannot resume.
+
+- name: Stat the package on the control node
+  ansible.builtin.stat:
+    path: "{{ s1_package_local_src }}"
+  delegate_to: localhost
+  become: false
+  register: s1_up_local
+
+- name: Fail when the local package does not exist
+  ansible.builtin.fail:
+    msg: "s1_package_local_src ({{ s1_package_local_src }}) does not exist on the control node."
+  when: not s1_up_local.stat.exists
+
+- name: Fail when the local and target filenames differ
+  ansible.builtin.fail:
+    msg: >-
+      s1_package_local_src is {{ s1_package_local_src | basename }} but
+      s1_package_path is {{ s1_package_path | basename }}. The version and the
+      checksum lookup both key on the filename, so they must match.
+  when: (s1_package_local_src | basename) != (s1_package_path | basename)
+
+- name: Stat the package on the target
+  ansible.builtin.stat:
+    path: "{{ s1_package_path }}"
+  register: s1_up_remote
+
+- name: Decide whether an upload is needed
+  ansible.builtin.set_fact:
+    s1_up_needed: >-
+      {{ not s1_up_remote.stat.exists
+         or s1_up_remote.stat.size != s1_up_local.stat.size }}
+
+- name: Stat the destination directory
+  ansible.builtin.stat:
+    path: "{{ s1_package_path | dirname }}"
+  register: s1_up_dir
+  when: s1_up_needed | bool
+
+# Created as the SSH user, because the transfer runs without become and has to
+# be able to write there. An existing directory (e.g. /var/tmp) is left alone.
+- name: Create the destination directory
+  ansible.builtin.file:
+    path: "{{ s1_package_path | dirname }}"
+    state: directory
+    owner: "{{ ansible_user | default(ansible_user_id) }}"
+    mode: "0755"
+  when:
+    - s1_up_needed | bool
+    - not s1_up_dir.stat.exists
+
+# A partial file from an interrupted run counts toward what is already there,
+# so only the remainder has to fit.
+- name: Check free space for the upload
+  ansible.builtin.command: "df -Pk {{ s1_package_path | dirname | quote }}"
+  register: s1_up_df
+  changed_when: false
+  when: s1_up_needed | bool
+
+- name: Fail when the destination is too small for the package
+  ansible.builtin.fail:
+    msg: >-
+      {{ s1_package_path | dirname }} has
+      {{ (s1_up_df.stdout_lines[-1].split()[3] | int / 1048576) | round(1) }} GiB
+      free but the package needs
+      {{ ((s1_up_local.stat.size - (s1_up_remote.stat.size | default(0))) / 1073741824) | round(1) }} GiB
+      more. Pick a larger s1_package_path or free some space.
+  when:
+    - s1_up_needed | bool
+    - (s1_up_df.stdout_lines[-1].split()[3] | int * 1024) < (s1_up_local.stat.size - (s1_up_remote.stat.size | default(0)))
+
+- name: Upload the package with rsync (resumable)
+  ansible.posix.synchronize:
+    src: "{{ s1_package_local_src }}"
+    dest: "{{ s1_package_path }}"
+    mode: push
+    archive: false
+    times: false
+    # synchronize defaults both of these on. --delay-updates is rejected by
+    # rsync alongside --inplace, and the tarball is already gzip-compressed.
+    delay_updates: false
+    compress: false
+    rsync_opts:
+      - "--partial"
+      - "--inplace"
+  become: false
+  when:
+    - s1_up_needed | bool
+    - s1_upload_method == 'rsync'
+
+- name: Upload the package with copy (not resumable)
+  ansible.builtin.copy:
+    src: "{{ s1_package_local_src }}"
+    dest: "{{ s1_package_path }}"
+    mode: "0644"
+  become: false
+  when:
+    - s1_up_needed | bool
+    - s1_upload_method == 'copy'
+
+- name: Confirm the uploaded size
+  ansible.builtin.stat:
+    path: "{{ s1_package_path }}"
+  register: s1_up_after
+  when: s1_up_needed | bool
+
+- name: Fail when the uploaded size does not match
+  ansible.builtin.fail:
+    msg: >-
+      Upload finished but {{ s1_package_path }} is {{ s1_up_after.stat.size }}
+      bytes, expected {{ s1_up_local.stat.size }}. Re-run to resume.
+  when:
+    - s1_up_needed | bool
+    - s1_up_after.stat.size != s1_up_local.stat.size
+
+- name: Report the upload
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Uploaded ' ~ s1_package_local_src ~ ' to ' ~ inventory_hostname ~ ':' ~ s1_package_path
+         if s1_up_needed | bool
+         else s1_package_path ~ ' already on ' ~ inventory_hostname ~ ' with the right size — upload skipped.' }}

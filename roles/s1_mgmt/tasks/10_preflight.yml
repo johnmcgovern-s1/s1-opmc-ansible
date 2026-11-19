@@ -247,6 +247,10 @@
 
 # --- Inputs ----------------------------------------------------------------
 
+- name: Upload the deployment package from the control node
+  ansible.builtin.import_tasks: "{{ playbook_dir }}/tasks/upload_package.yml"
+  when: s1_package_local_src | length > 0
+
 - name: Assert the deployment package is present on the target
   ansible.builtin.stat:
     path: "{{ s1_package_path }}"
