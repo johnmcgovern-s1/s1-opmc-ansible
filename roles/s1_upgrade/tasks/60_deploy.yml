@@ -27,24 +27,76 @@
       the bootstrap stage, so run without --tags (or include 'bootstrap'), or
       set s1_playbook_bin and s1_python_interpreter explicitly.
 
+# O-26.3.1's deploy restarts Docker several times within a minute and trips
+# systemd's start limit (3 per minute) at the stig_docker restart. A temporary
+# drop-in lifts the limit for the deploy only. See s1_mgmt/tasks/60_deploy.yml.
 - name: Run the vendor upgrade
-  ansible.builtin.command: >-
-    {{ s1_bin | quote }} deploy_mgmt.yml
-    -i hosts
-    -e ansible_python_interpreter={{ s1_py | quote }}
-    {{ s1_pg_flags }}
-  args:
-    chdir: "{{ s1_docker_ansible }}"
-  environment:
-    HOME: /root
-    ANSIBLE_FORCE_COLOR: "0"
-  register: s1_up_deploy
-  changed_when: true
-  failed_when: >-
-    s1_up_deploy.rc != 0 or
-    (s1_up_deploy.stdout is search('failed=[1-9]'))
-  async: "{{ s1_upgrade_timeout }}"
-  poll: 30
+  block:
+    - name: Ensure the Docker unit drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/docker.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: s1_docker_start_limit_workaround | bool
+
+    - name: Lift Docker's start-rate limit for the duration of the upgrade
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/docker.service.d/zz-opmc-start-limit.conf
+        content: |
+          # Temporary: written by s1-opmc-ansible during upgrade, removed after.
+          [Unit]
+          StartLimitIntervalSec=0
+        owner: root
+        group: root
+        mode: "0644"
+      when: s1_docker_start_limit_workaround | bool
+      register: s1_start_limit_dropin
+
+    - name: Reload systemd so the override takes effect
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: s1_start_limit_dropin is changed
+
+    - name: Run the vendor upgrade
+      ansible.builtin.command: >-
+        {{ s1_bin | quote }} deploy_mgmt.yml
+        -i hosts
+        -e ansible_python_interpreter={{ s1_py | quote }}
+        {{ s1_pg_flags }}
+      args:
+        chdir: "{{ s1_docker_ansible }}"
+      environment:
+        HOME: /root
+        ANSIBLE_FORCE_COLOR: "0"
+      register: s1_up_deploy
+      changed_when: true
+      failed_when: >-
+        s1_up_deploy.rc != 0 or
+        (s1_up_deploy.stdout is search('failed=[1-9]'))
+      async: "{{ s1_upgrade_timeout }}"
+      poll: 30
+
+  always:
+    - name: Remove the temporary Docker start-limit override
+      ansible.builtin.file:
+        path: /etc/systemd/system/docker.service.d/zz-opmc-start-limit.conf
+        state: absent
+      register: s1_start_limit_removed
+      when: s1_docker_start_limit_workaround | bool
+
+    - name: Remove the drop-in directory if it is empty
+      ansible.builtin.command: rmdir /etc/systemd/system/docker.service.d
+      register: s1_start_limit_rmdir
+      changed_when: s1_start_limit_rmdir.rc == 0
+      failed_when: false
+      when: s1_docker_start_limit_workaround | bool
+
+    - name: Reload systemd after removing the override
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: s1_start_limit_removed is changed
 
 - name: Show the vendor PLAY RECAP
   ansible.builtin.debug:

@@ -76,4 +76,7 @@ s1_known_unhealthy_containers:
 # Empty leaves the existing setting alone.
 s1_smtp_whitelisted_host_ips: ""
 
+# Temporarily lift Docker's systemd start limit during the vendor upgrade (the
+# O-26.3.1 deploy restarts Docker several times a minute). Removed afterwards.
+s1_docker_start_limit_workaround: true
 s1_upgrade_timeout: 7200

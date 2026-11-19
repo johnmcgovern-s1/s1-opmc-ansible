@@ -89,6 +89,12 @@ s1_min_free_gb_data: 100       # for mount_dir
 
 # Deploy is gated on /s1/conf/settings.ini. Set true to re-run over an install.
 s1_force_redeploy: false
+
+# The O-26.3.1 deploy restarts Docker several times in seconds and trips
+# systemd's start limit (3 per minute), failing at the stig_docker restart. When
+# true, a temporary drop-in lifts the limit for the duration of the deploy and
+# is removed afterwards. See 60_deploy.yml.
+s1_docker_start_limit_workaround: true
 s1_deploy_timeout: 7200
 
 # Required from S-24.2.5.173 onward. Both current packages are past that.
