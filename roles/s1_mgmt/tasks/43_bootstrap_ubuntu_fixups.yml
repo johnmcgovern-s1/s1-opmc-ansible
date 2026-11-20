@@ -101,7 +101,6 @@
   when:
     - (s1_ub_ansible_pkg.stdout | default('') | trim) | length > 0
     - s1_ubuntu_readfp_required | bool
-  when: (s1_ub_ansible_pkg.stdout | default('') | trim) | length > 0
 
 # --- PKG-009: the vendor deploy calls bare `python` -------------------------
 # roles/app/start_app_container.yml runs `python -c "import uuid;..."`, and no
