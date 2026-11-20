@@ -26,12 +26,34 @@
     - s1_prefix == 'S'
     - ansible_distribution_major_version == '8'
 
+# offline_installation.sh has no way to tell it already ran, and both calls below
+# report changed unconditionally. On a finished console they find everything
+# installed and do nothing (observed on RHEL 9.9 and 10.3: Docker, containers
+# and packages untouched), but a re-run still reported changes, and RHEL 10 can
+# in principle report a kernel update here. Same gate as 60_deploy.yml and the
+# Ubuntu bootstrap: once /s1/conf/settings.ini exists the tooling is in place and
+# is left alone unless s1_force_redeploy is set.
+- name: Check whether the console is already installed
+  ansible.builtin.stat:
+    path: /s1/conf/settings.ini
+  register: s1_rhel_installed
+
+- name: Report that the vendor tooling install is being skipped
+  ansible.builtin.debug:
+    msg: >-
+      /s1/conf/settings.ini exists, so the Docker and Ansible install steps are
+      skipped. Set s1_force_redeploy=true to run them anyway.
+  when:
+    - s1_rhel_installed.stat.exists
+    - not s1_force_redeploy | bool
+
 - name: Install docker-ce, pip and the docker python package
   ansible.builtin.command: ./offline_installation.sh install_docker_and_pip
   args:
     chdir: "{{ s1_docker_ansible }}/rhel"
   register: s1_bootstrap_docker
   changed_when: true
+  when: (not s1_rhel_installed.stat.exists) or (s1_force_redeploy | bool)
 
 - name: Detect the RHEL 10 kernel-reboot condition
   ansible.builtin.fail:
@@ -47,6 +69,7 @@
   args:
     chdir: "{{ s1_docker_ansible }}/rhel"
   changed_when: true
+  when: (not s1_rhel_installed.stat.exists) or (s1_force_redeploy | bool)
 
 - name: Ensure the Docker daemon is enabled and running
   ansible.builtin.systemd:

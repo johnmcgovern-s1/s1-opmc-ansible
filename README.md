@@ -592,11 +592,17 @@ the 9.7 / 10.2 used in earlier campaigns.
   21 containers, none unexpectedly down, `/data/s1` and `/data/uploads`
   preserved (`/data/uploads -> /uploads` unchanged, no stray `/uploads`), and no
   Postgres action for the hop. RHEL 10 is install-only, as before.
-- **Re-running `install.yml` on a finished Ubuntu host** is idempotent
-  (`changed=0`). The Ubuntu bootstrap skips the vendor Docker and Ansible install
-  scripts when `/s1/conf/settings.ini` exists, because they reinstall packages
-  under live containers. RHEL's bootstrap does not have this gate yet and has not
-  been re-run on a finished host.
+- **Re-running `install.yml` on a finished console** is safe and, after the
+  first re-run, reports `changed=0` on RHEL 9.9, RHEL 10.3 and Ubuntu 24.04.5.
+  The bootstrap skips the vendor Docker and Ansible install scripts when
+  `/s1/conf/settings.ini` exists (`s1_force_redeploy=true` overrides). Before the
+  gate was added, those scripts reported `changed` on every run. On RHEL 9.9 and
+  10.3 they were harmless (Docker's PID and start time, all 21 containers, the
+  package versions and `daemon.json` were identical before and after), but on
+  Ubuntu they reinstalled Docker packages under live containers. One quirk: a
+  tree created by `upgrade.yml` has its console config values written by the
+  first `install.yml` re-run (`changed=2`-ish), then stays at `changed=0`; a tree
+  from a clean install does not.
 - **Not yet tested on O-26.3.1:** RHEL 8.10, Ubuntu 22.04, and Ubuntu 26.04
   (the package ships no `ubuntu_26` tooling, so it is expected to be refused).
 
