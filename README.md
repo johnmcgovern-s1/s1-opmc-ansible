@@ -601,7 +601,7 @@ the 9.7 / 10.2 used in earlier campaigns.
   package versions and `daemon.json` were identical before and after), but on
   Ubuntu they reinstalled Docker packages under live containers. One quirk: a
   tree created by `upgrade.yml` has its console config values written by the
-  first `install.yml` re-run (`changed=2`-ish), then stays at `changed=0`; a tree
+  first `install.yml` re-run (`changed=2` observed), then stays at `changed=0`; a tree
   from a clean install does not.
 - **Not yet tested on O-26.3.1:** RHEL 8.10, Ubuntu 22.04, and Ubuntu 26.04
   (the package ships no `ubuntu_26` tooling, so it is expected to be refused).
