@@ -17,8 +17,9 @@
 #   local  — computed from a local copy. Proves the file has not changed since,
 #            but cannot prove the copy was good to begin with.
 #
-# All five entries below are vendor-published sums, each verified against the
-# local copy in installers/ on 2026-07-30 (O-26.3.1: verified 2026-11-18).
+# All six entries below are vendor-published sums, each verified against the
+# local copy in installers/ on 2026-07-30 (O-26.3.1 builds: verified 2026-11-18
+# for _032 and 2026-11-20 for _037).
 #
 # To add an entry:
 #   openssl dgst -sha256 installers/<package>.tar.gz    # any platform, fastest
@@ -29,6 +30,10 @@
 #
 # The upgrade path runs top to bottom:
 #   S-25.3.2 -> O-25.4.4 -> O-25.4.6 -> O-26.1.1 -> O-26.3.1
+#
+# O-26.3.1 has two builds with the same `release` in version.json and different
+# `management_tag` (o_26_3_1_032, o_26_3_1_037). _037 is a patch rebuild (nginx
+# vulnerability fixes). Both resolve to the version "O-26.3.1".
 
 packages:
 
@@ -61,3 +66,9 @@ packages:
     source: vendor
     size: 6061400646
     sha256: "DEFF6C9BD6F70E03473E1886FE772D70DE1E8AB2E4A2B4660E286F61E0C07928"
+
+  sentinel_mgmt_o_26_3_1_037.tar.gz:
+    version: "O-26.3.1"
+    source: vendor
+    size: 6199053455
+    sha256: "0836549FE839663A75F3998695366D4F02344DB24245DA8DC79FFCD2943958B7"
