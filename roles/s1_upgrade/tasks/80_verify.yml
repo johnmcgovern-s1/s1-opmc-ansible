@@ -87,7 +87,7 @@
 - name: Final report
   ansible.builtin.debug:
     msg:
-      - "upgraded   : {{ s1_current_version }} -> {{ s1_version_resolved }}"
+      - "upgraded   : {{ s1_current_version }}{{ ' (' ~ s1_current_tag ~ ')' if s1_patch_build | default(false) | bool else '' }} -> {{ s1_version_resolved }}{{ ' (build ' ~ s1_pkg_build ~ ')' if s1_patch_build | default(false) | bool else '' }}"
       - "postgres   : {{ s1_pg_action }}{{ ' (dump dir ' ~ s1_dump_dir ~ ')' if s1_pg_action != 'none' else '' }}"
       - "containers : {{ s1_up_ps.stdout_lines | length }} total, {{ s1_up_down | length }} unexpectedly down, {{ s1_up_unhealthy | length }} unexpectedly unhealthy"
       - "console    : {{ s1_up_http.status | default('not checked') }}"

@@ -143,6 +143,22 @@
       but this run targets '{{ s1_version_resolved }}'. Fix s1_version or
       s1_package_path — a mismatch puts the files in the wrong directory.
 
+# Catches a renamed or mislabelled file: the filename build drives the directory
+# name and the upgrade-chain decision, so it must agree with what is inside.
+# Skipped when either side carries no trailing number.
+- name: Assert the packaged build matches the filename
+  ansible.builtin.assert:
+    that:
+      - (s1_version_json.content | b64decode | from_json).management_tag | regex_search('[0-9]+$') | int == s1_pkg_build | int
+    fail_msg: >-
+      {{ s1_pkg_name }} is labelled build {{ s1_pkg_build }} but its version.json
+      says management_tag
+      '{{ (s1_version_json.content | b64decode | from_json).management_tag }}'.
+      Do not rename vendor packages.
+  when:
+    - s1_pkg_build | length > 0
+    - (s1_version_json.content | b64decode | from_json).management_tag | default('') | regex_search('[0-9]+$') | default('', true) | length > 0
+
 - name: Ensure the vendor shell scripts are executable
   ansible.builtin.file:
     path: "{{ item }}"

@@ -14,6 +14,20 @@
       rather than {{ s1_version_resolved }}. The upgrade did not complete.
     success_msg: "Version file now reports {{ s1_version_resolved }}."
 
+# `release` is identical across builds of a release, so for a patch build the
+# check above passes even if nothing changed. The vendor rewrites management_tag
+# at the end of a successful upgrade; confirm it is the build we staged.
+- name: Assert the staged build is the one now installed
+  ansible.builtin.assert:
+    that:
+      - (s1_new_version_raw.content | b64decode | from_json).management_tag | default('') | regex_search('[0-9]+$') | default('0', true) | int == s1_pkg_build | int
+    fail_msg: >-
+      /s1/version.json reports management_tag
+      '{{ (s1_new_version_raw.content | b64decode | from_json).management_tag | default('') }}'
+      but build {{ s1_pkg_build }} was staged. The upgrade did not complete.
+    success_msg: "Console is now on build {{ s1_pkg_build }}."
+  when: s1_pkg_build | length > 0
+
 # The vendor documents these four as unhealthy by design after an upgrade.
 # Stopping them is the documented recommendation.
 - name: Stop the containers the vendor expects to be broken

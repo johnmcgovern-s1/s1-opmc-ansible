@@ -35,6 +35,57 @@
       Contents: {{ s1_installed_raw.content | b64decode }}
   when: s1_current_version | length == 0
 
+# --- Patch builds -------------------------------------------------------------
+# A rebuilt package of the SAME release (O-26.3.1 build 32 -> build 37, shipped
+# for security fixes) has an identical `release`, so the chain below cannot see
+# it. The installed build is the number on management_tag; the staged one is on
+# the filename. A higher build of the installed release is a valid step; the
+# same build is nothing to do; a lower one is a downgrade. The vendor guards
+# against downgrades only when docker_tag is passed, which we deliberately never
+# do (see 60_deploy.yml), so this check is the only one.
+- name: Work out the installed and staged builds
+  ansible.builtin.set_fact:
+    s1_current_build: "{{ s1_current_tag | regex_search('[0-9]+$') | default('0', true) | int }}"
+    s1_target_build: "{{ s1_pkg_build | default('0', true) | int }}"
+    s1_same_release: "{{ s1_current_version == s1_version_resolved }}"
+
+- name: Fail when the builds of the same release cannot be compared
+  ansible.builtin.fail:
+    msg: |
+      {{ s1_current_version }} is installed and the staged package is the same
+      release, so the build decides what happens, but it could not be read:
+        installed management_tag : '{{ s1_current_tag }}'
+        staged package filename  : {{ s1_package_path | basename }}
+      Do not rename vendor packages (the build is the trailing number).
+  when:
+    - s1_same_release | bool
+    - (s1_current_build | int == 0) or (s1_target_build | int == 0)
+
+- name: Fail when the staged build is already installed
+  ansible.builtin.fail:
+    msg: >-
+      {{ s1_current_version }} build {{ s1_current_build }} is already installed
+      ({{ s1_current_tag }}); nothing to upgrade to. Stage a newer build.
+  when:
+    - s1_same_release | bool
+    - s1_target_build | int == s1_current_build | int
+
+- name: Fail on a downgrade within the same release
+  ansible.builtin.fail:
+    msg: |
+      Refusing to downgrade {{ s1_version_resolved }}.
+        installed build : {{ s1_current_build }} ({{ s1_current_tag }})
+        staged build    : {{ s1_target_build }}
+      The vendor's own downgrade check is disabled in this playbook, and a
+      downgrade can cause data loss. Restore a snapshot instead.
+  when:
+    - s1_same_release | bool
+    - s1_target_build | int < s1_current_build | int
+
+- name: Note that this is a patch build of the installed release
+  ansible.builtin.set_fact:
+    s1_patch_build: "{{ (s1_same_release | bool) and (s1_target_build | int > s1_current_build | int) }}"
+
 # --- Chain validation -------------------------------------------------------
 
 - name: Fail when the installed version is not a known upgrade source
@@ -72,6 +123,7 @@
     - s1_current_index is defined
     - s1_expected_target | length == 0
     - not s1_skip_chain_check | bool
+    - not s1_patch_build | bool
 
 - name: Fail when the staged package is not the next hop
   ansible.builtin.fail:
@@ -84,6 +136,7 @@
       s1_skip_chain_check=true only for a path Support has approved.
   when:
     - not s1_skip_chain_check | bool
+    - not s1_patch_build | bool
     - s1_version_resolved != s1_expected_target
 
 # --- Postgres state ---------------------------------------------------------
@@ -121,7 +174,7 @@
   ansible.builtin.debug:
     msg:
       - "installed      : {{ s1_current_version }} ({{ s1_current_tag }})"
-      - "upgrading to   : {{ s1_version_resolved }}"
+      - "upgrading to   : {{ s1_version_resolved }}{{ ' build ' ~ s1_pkg_build ~ ' (patch build of the installed release)' if s1_patch_build | bool else '' }}"
       - "remaining path : {{ s1_remaining_path | default([s1_current_version]) | join(' -> ') }}"
       - "postgres       : tag={{ s1_pg_tag | default('unknown') }} major={{ s1_pg_major }} bullseye={{ s1_pg_bullseye }}"
       - "pg action      : {{ s1_pg_action }} ({{ 'no flags' if s1_pg_action == 'none' else ('upgrade_postgres=false + dump_dir' if s1_pg_action == 'defer' else 'upgrade_postgres=true + dump_dir') }})"

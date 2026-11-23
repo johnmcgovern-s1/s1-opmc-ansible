@@ -9,6 +9,15 @@
                | regex_replace('^.*?_([so])_(\d+)_(\d+)_(\d+)_\d+\.tar\.gz$', '\1-\2.\3.\4')
                | upper) }}
 
+# The trailing number in the filename is the build (…_26_3_1_037.tar.gz -> 037).
+# `release` in version.json is the same for every build of a release, so the
+# build is the only thing that tells 26.3.1.32 from 26.3.1.37. Empty when the
+# filename carries none.
+- name: Derive the build number from the package filename
+  ansible.builtin.set_fact:
+    s1_pkg_build: >-
+      {{ s1_package_path | basename | regex_search('_([0-9]+)\.tar\.gz$', '\1') | first | default('') }}
+
 - name: Fail when the version could not be derived
   ansible.builtin.fail:
     msg: >-
@@ -43,10 +52,37 @@
       {{ s1_install_base if s1_install_base | length > 0
          else ansible_facts.getent_passwd[ansible_user][4] }}
 
+# The package is unpacked into ~/<VERSION>/. A patch build of the same release
+# (26.3.1 build 37 after build 32) has the same <VERSION>, and the stage step
+# skips unpacking when the directory already holds a package, so it would
+# silently deploy the OLD build. If the directory already holds a different
+# build, use ~/<VERSION>.<BUILD>/ instead. The first build of a release keeps the
+# plain name, so existing installs and layouts are unchanged.
+- name: Look for an existing package of this release
+  ansible.builtin.slurp:
+    src: "{{ s1_base }}/{{ s1_version_resolved }}/version.json"
+  register: s1_existing_pkg
+  failed_when: false
+
+- name: Choose the version directory name
+  ansible.builtin.set_fact:
+    s1_existing_build: >-
+      {{ ((s1_existing_pkg.content | default('') | b64decode | from_json).management_tag | default('')
+          | regex_search('[0-9]+$')) | default('', true) if s1_existing_pkg.content is defined else '' }}
+    s1_dir_name: >-
+      {{ s1_version_resolved ~ '.' ~ s1_pkg_build
+         if (s1_existing_pkg.content is defined
+             and s1_pkg_build | length > 0
+             and (((s1_existing_pkg.content | b64decode | from_json).management_tag | default('')
+                   | regex_search('[0-9]+$')) | default('', true)) | length > 0
+             and ((s1_existing_pkg.content | b64decode | from_json).management_tag
+                  | regex_search('[0-9]+$') | int) != (s1_pkg_build | int))
+         else s1_version_resolved }}
+
 - name: Resolve derived paths
   ansible.builtin.set_fact:
-    s1_dest: "{{ s1_base }}/{{ s1_version_resolved }}"
-    s1_docker_ansible: "{{ s1_base }}/{{ s1_version_resolved }}/docker_ansible"
+    s1_dest: "{{ s1_base }}/{{ s1_dir_name }}"
+    s1_docker_ansible: "{{ s1_base }}/{{ s1_dir_name }}/docker_ansible"
     # Ubuntu tooling lives beside rhel/ in the same package. Derived from the OS
     # major version unless pinned — the vendor names the directories ubuntu_22,
     # ubuntu_24 and so on, so the mapping needs no table. Resolved for every
@@ -58,7 +94,7 @@
 - name: Resolve the Ubuntu tooling path
   ansible.builtin.set_fact:
     s1_ubuntu_dir: >-
-      {{ s1_base }}/{{ s1_version_resolved }}/docker_ansible/{{ s1_ubuntu_tooling_resolved }}
+      {{ s1_base }}/{{ s1_dir_name }}/docker_ansible/{{ s1_ubuntu_tooling_resolved }}
 
 # The vendor's ansible-playbook location depends on the release, not just the
 # prefix and OS major, so it cannot be known until offline_installation.sh has
