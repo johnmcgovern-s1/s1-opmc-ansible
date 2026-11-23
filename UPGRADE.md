@@ -1,4 +1,4 @@
-# UPGRADE — SentinelOne Management Console
+# UPGRADE - SentinelOne Management Console
 
 Upgrades an existing self-hosted console one version at a time.
 
@@ -19,7 +19,7 @@ S-25.3.2.96  →  O-25.4.4.22  →  O-25.4.6.34  →  O-26.1.1.009  →  O-26.3.
 ```
 
 **S-25.3.2 is the earliest supported source here.** It is also the final
-S-prefix release — every version after it uses the O prefix, starting with
+S-prefix release - every version after it uses the O prefix, starting with
 O-25.4.4. A console older than S-25.3.2 must be stepped up to S-25.3.2 using
 the vendor procedure before this playbook can take over.
 
@@ -27,7 +27,7 @@ the vendor procedure before this playbook can take over.
 next hop, and refuses anything else:
 
 ```
-Illegal upgrade hop — versions must not be skipped.
+Illegal upgrade hop - versions must not be skipped.
   installed      : S-25.3.2
   staged package : O-25.4.6
   expected next  : O-25.4.4
@@ -36,12 +36,12 @@ Illegal upgrade hop — versions must not be skipped.
 Take a fresh snapshot between hops. To go from S-25.3.2 to O-26.3.1 you run the
 playbook four times, staging a different package each time.
 
-Adding a new release is a one-line change — append it to `s1_upgrade_order` in
+Adding a new release is a one-line change - append it to `s1_upgrade_order` in
 [roles/s1_upgrade/defaults/main.yml](roles/s1_upgrade/defaults/main.yml).
 
 ### Patch builds of the same release
 
-The vendor sometimes ships a **new build of a release you already run** — for
+The vendor sometimes ships a **new build of a release you already run** - for
 example `sentinel_mgmt_o_26_3_1_037.tar.gz` (security fixes) after
 `…_032.tar.gz`. Both report `release: O-26.3.1` in `version.json`; only
 `management_tag` (`o_26_3_1_032` vs `o_26_3_1_037`) and the trailing build number
@@ -54,7 +54,7 @@ ansible-playbook upgrade.yml -e s1_snapshot_confirmed=true \
   -e s1_package_local_src=~/Downloads/sentinel_mgmt_o_26_3_1_037.tar.gz
 ```
 
-- The build is the **trailing number in the filename** — do not rename vendor
+- The build is the **trailing number in the filename** - do not rename vendor
   packages. After unpacking, the playbook asserts it matches `management_tag`
   inside the package.
 - A **higher build of the installed release** is a valid step. The **same build**
@@ -72,13 +72,13 @@ ansible-playbook upgrade.yml -e s1_snapshot_confirmed=true \
   lightweight patch. SentinelOne also ships some fixes as small patches applied
   to a running console (for example for O-26.1.1); that mechanism is **not**
   implemented here. Whether a patch-only route exists for O-26.3.1 is
-  unconfirmed — check with Support if you want one instead of an upgrade.
+  unconfirmed - check with Support if you want one instead of an upgrade.
 
 ---
 
 ## Before you start
 
-### 1. Take a snapshot — the playbook will not run without one
+### 1. Take a snapshot - the playbook will not run without one
 
 `s1_snapshot_confirmed` defaults to `false` and blocks the run. This is
 deliberate: the documented recovery for a failed upgrade is "revert to your
@@ -91,7 +91,7 @@ Confirm with `-e s1_snapshot_confirmed=true`.
 
 ### 2. Stage the package
 
-Same as a clean install — copy the tarball to the target out of band, then
+Same as a clean install - copy the tarball to the target out of band, then
 point the playbook at it:
 
 ```bash
@@ -106,7 +106,7 @@ It is unpacked to `~/O-25.4.4/`, alongside the previous version's directory.
 Old versions are left in place; pruning them is your responsibility.
 
 The package is checksum-verified before unpacking, using the shared staging
-logic — size first, then SHA256 — against [checksums.yml](checksums.yml). Add
+logic - size first, then SHA256 - against [checksums.yml](checksums.yml). Add
 the sum for each new package before you upgrade with it; see
 [INSTALL.md](INSTALL.md#1-the-deployment-tgz--the-target-server) for the
 format. A bad download caught here costs a minute; caught mid-deploy it costs
@@ -122,16 +122,16 @@ with the fix if it finds it.
 **This is the upgrade-specific trap.** S-prefix releases ship MongoDB 4.4,
 which runs happily without AVX. O-prefix releases ship MongoDB 5.0+, which
 requires it. So a console that has been running fine for months on S-25.3.2
-will crash-loop the moment it is upgraded to O-25.4.4 — and the vendor playbook
+will crash-loop the moment it is upgraded to O-25.4.4 - and the vendor playbook
 only discovers it ~7 minutes in, at "Wait for mongo to be available", leaving a
 half-migrated console.
 
 ```bash
-grep -qw avx /proc/cpuinfo && echo OK || echo "MISSING — fix before upgrading"
+grep -qw avx /proc/cpuinfo && echo OK || echo "MISSING - fix before upgrading"
 ```
 
 Preflight blocks the hop if AVX is missing and the target is O-prefix. On
-Proxmox, set Hardware → Processors → Type to `host` (or `x86-64-v3`) — and
+Proxmox, set Hardware → Processors → Type to `host` (or `x86-64-v3`) - and
 re-check after any snapshot rollback, since reverting restores the old VM
 config and silently undoes it.
 
@@ -139,13 +139,13 @@ config and silently undoes it.
 
 ## What the playbook does differently from an install
 
-### `mount_dir` handling — and why it is conditional
+### `mount_dir` handling - and why it is conditional
 
 The deploy must point at where the data already lives. The playbook probes
 `/data/postgres` then `/postgres`, prints the Postgres container's own mounts as
 a cross-check, and then picks one of two forms:
 
-**A — the layout is derivable** (`/data/postgres` + `/data/mongo`):
+**A - the layout is derivable** (`/data/postgres` + `/data/mongo`):
 
 ```yaml
 mount_dir: /data
@@ -155,7 +155,7 @@ mount_dir: /data
 from it, exactly as they did at install. Nothing moves. This is the normal case
 for a console built by `install.yml`.
 
-**B — the layout is not derivable** (custom paths):
+**B - the layout is not derivable** (custom paths):
 
 ```yaml
 mount_dir:
@@ -187,7 +187,7 @@ override detection entirely:
 ```
 
 If you are not sure where the databases live, **ask SentinelOne Support before
-running** — pointing an upgrade at the wrong path risks data loss.
+running** - pointing an upgrade at the wrong path risks data loss.
 
 ### Postgres 11 → 15 is handled automatically
 
@@ -233,9 +233,9 @@ The vendor documents these as not working by design after an upgrade. The
 playbook stops them and excludes them from the health check, so a clean upgrade
 does not report false failures:
 
-- `incoming-command-processor` — gets stuck restarting
+- `incoming-command-processor` - gets stuck restarting
 - `tags-synchronizer`, `mgmt-entities-uploader`, `mgmt-entities-cdc`,
-  `ranger-fingerprint-consumer` — report unhealthy by design
+  `ranger-fingerprint-consumer` - report unhealthy by design
 
 Disable with `-e s1_stop_known_unhealthy=false`.
 
@@ -252,7 +252,7 @@ scp installers/<package>.tar.gz <user>@console.example.com:/var/tmp/
 # 3. Point at it
 $EDITOR group_vars/all/main.yml     # s1_package_path
 
-# 4. Preflight — validates the hop, paths and dump space, changes nothing
+# 4. Preflight - validates the hop, paths and dump space, changes nothing
 ansible-playbook upgrade.yml --tags preflight -e s1_snapshot_confirmed=true
 
 # 5. Upgrade
@@ -296,8 +296,8 @@ when: (current_tag_type == 's_release' and new_tag_type != 's_release') or ...
 That is exactly the S-25.3.2 → O-25.4.4 hop the documentation prescribes. It
 only stays dormant because `deploy_mgmt.yml` guards the include with
 `when: docker_tag is defined` (among others), and `docker_tag` is undefined by
-default. Note the check does not use `docker_tag`'s *value* — the prefix
-comparison reads the package's own `versions.api` — so passing it at all is
+default. Note the check does not use `docker_tag`'s *value* - the prefix
+comparison reads the package's own `versions.api` - so passing it at all is
 enough to trigger the failure. Written up internally as PKG-003.
 
 **So: never pass `-e docker_tag=...` on an S→O upgrade.** This playbook does
@@ -307,11 +307,11 @@ not. If you ever need to, add `-e disable_version_check=true` alongside it.
 
 ## Troubleshooting
 
-**`failed=N` in the PLAY RECAP** — revert to your snapshot and open a Support
+**`failed=N` in the PLAY RECAP** - revert to your snapshot and open a Support
 ticket, attaching the `.err` and `.log` files from `/var/log/s1/migrations`.
 The playbook also writes a full log to `~/<VERSION>/upgrade-<timestamp>.log`.
 
-**`FAILED - RETRYING: Set backward compatibility`** — comment out the
+**`FAILED - RETRYING: Set backward compatibility`** - comment out the
 `Set mongo backward compatibility` block in the staged `deploy_mgmt.yml` and
 re-run.
 
@@ -324,7 +324,7 @@ sudo docker exec -it postgres psql sentinellabs
 delete from bulk_tasks bt where not exists (select 1 from single_tasks st where bt.id=st.parent_task_id);
 ```
 
-**`rmtree failed: Device or resource busy: '/postgres'`** — `sudo umount /postgres/`
+**`rmtree failed: Device or resource busy: '/postgres'`** - `sudo umount /postgres/`
 (or `/mongo/`), then re-run.
 
 **Active Directory conflict** (`FAILED! => {"changed": false, ... "status": 1}`)
@@ -333,19 +333,19 @@ delete from bulk_tasks bt where not exists (select 1 from single_tasks st where 
 delete from active_directory_role_mappings;
 ```
 
-**`Error starting container`** — `systemctl restart docker`.
+**`Error starting container`** - `systemctl restart docker`.
 
-**Not enough space on `/`** — redirect the build directory:
+**Not enough space on `/`** - redirect the build directory:
 `-e remote_build_path=/mongo/tmp_mgmt_deploy`.
 
-**Deep Visibility auth fails after upgrade** — open a Support ticket for your
+**Deep Visibility auth fails after upgrade** - open a Support ticket for your
 Management ID, then:
 
 ```bash
 sudo sentinelmgmtctl change_settings --section cloud --key mgmt_id --value <mgmt_id>
 ```
 
-**Private IPs rejected as SMTP servers** (S-25.1.4+) — set
+**Private IPs rejected as SMTP servers** (S-25.1.4+) - set
 `-e s1_smtp_whitelisted_host_ips="10.1.1.1,10.1.9.1"`.
 
 ---
@@ -390,7 +390,7 @@ install snapshotted before the hop; both confirmed in the console as O-26.3.1.32
 
 Both preserved `/data/s1` and `/data/uploads`, ran with no Postgres action, and
 left Docker's systemd start limits at their defaults. The upgrade role applies
-the same temporary Docker start-limit drop-in as the install — see
+the same temporary Docker start-limit drop-in as the install - see
 [O-26.3.1 notes](README.md#o-2631-notes). RHEL 8.10 and Ubuntu 22.04 have not
 been tested on this hop.
 
@@ -405,7 +405,7 @@ fixes in build 37 are effective was not independently verified.
 this playbook's. Both reported `failed=0` at each layer.)
 
 Postgres tracked 15.4 → 15.16 → 15.18 on both platforms **without**
-`upgrade_postgres` ever being set — minor bumps ride along with normal
+`upgrade_postgres` ever being set - minor bumps ride along with normal
 container replacement.
 
 On RHEL 9.7, `mount_dir` detection was confirmed to hold: after all three hops
@@ -421,7 +421,7 @@ version, an unknown source and an already-latest console.
 The vendor changes where `ansible-playbook` lives **partway through the chain**
 on RHEL 9: O-25.4.4 uses `/usr/local/bin`, O-25.4.6 switches to a venv under
 `/opt/sentinelone/installer`. The runtime is therefore discovered from the host
-after bootstrap rather than read from a table — see the README. Note the vendor
+after bootstrap rather than read from a table - see the README. Note the vendor
 upgrade article's own O-25.4.4 command prescribes the venv interpreter path,
 which that release never creates; recorded internally as DOC-004.
 

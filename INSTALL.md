@@ -1,4 +1,4 @@
-# INSTALL — SentinelOne Management Console
+# INSTALL - SentinelOne Management Console
 
 Clean installation on RHEL 8.10 / 9.x / 10.x and Ubuntu 22.04 / 24.04 (see the
 [test matrix](README.md#test-matrix) for which release runs where). Budget **40–60 minutes**; the vendor
@@ -25,7 +25,7 @@ CONTROL NODE (your Mac / jump host)        TARGET SERVER (RHEL 8.10 / 9.7)
 ### 1. The deployment TGZ → the **target server**
 
 The package is ~5 GB. Ansible's `copy` module is far too slow for that, so the
-playbook **does not transfer it** — it expects the file to already be on the
+playbook **does not transfer it** - it expects the file to already be on the
 target and fails preflight with a clear message if it is missing.
 
 Copy it out of band:
@@ -41,10 +41,10 @@ s1_package_path: /var/tmp/SentinelOne_MGMT_S_25_3_2_096.tar.gz
 ```
 
 The local `installers/` directory is only a staging area for your own copies.
-It is **gitignored** — never commit these files.
+It is **gitignored** - never commit these files.
 
 **Integrity is verified before unpacking.** The vendor's download service is
-unreliable, and a truncated tarball otherwise fails deep inside the deploy —
+unreliable, and a truncated tarball otherwise fails deep inside the deploy -
 after the host has already been modified. Staging checks the package against
 [checksums.yml](checksums.yml) first:
 
@@ -57,7 +57,7 @@ so vendor sums can be pasted exactly as published.
 
 A package with no entry in `checksums.yml` is refused: its RPMs are installed
 with gpgcheck disabled and its playbooks run as root, so an unverified package
-is a supply-chain risk. Add an entry (see below), or — accepting that risk —
+is a supply-chain risk. Add an entry (see below), or - accepting that risk -
 let it through with a warning:
 
 ```bash
@@ -84,14 +84,14 @@ Prefer vendor-published sums where you can get them: a locally computed hash
 proves the file has not changed since you hashed it, but cannot prove the copy
 was good to begin with.
 
-Re-running skips the hash when the version directory is already unpacked —
+Re-running skips the hash when the version directory is already unpacked -
 delete it to force a fresh verified unpack.
 
 **Where it gets unpacked.** The playbook extracts into a version-named
 directory in the home of the SSH user, giving `~/S-25.3.2/`. The tarballs
 extract *flat* (no top-level directory), so this produces
 `~/S-25.3.2/docker_ansible/...` exactly as the vendor docs assume. Old version
-directories are left in place to make upgrades easy — **pruning them is your
+directories are left in place to make upgrades easy - **pruning them is your
 responsibility**. If that directory already holds a *different build* of the same
 release (a patch build such as `…_037` after `…_032`), the new package goes into
 `~/<VERSION>.<BUILD>/` (`~/O-26.3.1.037/`) instead, so the older tree is never
@@ -117,7 +117,7 @@ root-only `0700` directory; `0600` on the key, `0644` on the certificate) and
 writes those paths into `sentinel_pem_file` and `sentinel_key_file`. Override
 the staging directory with `s1_cert_dir`.
 
-Both files must be **PEM encoded** — base64 text between header lines, not DER
+Both files must be **PEM encoded** - base64 text between header lines, not DER
 or PKCS#12:
 
 ```
@@ -141,7 +141,7 @@ openssl pkcs12 -in cert.pfx -clcerts -nokeys -out certificates/certificate.pem
 openssl pkcs12 -in cert.pfx -nocerts -nodes -out certificates/certificate.key
 ```
 
-If the certificate needs an intermediate chain, concatenate it into the PEM —
+If the certificate needs an intermediate chain, concatenate it into the PEM -
 server certificate first, then intermediates.
 
 Use different filenames by setting `s1_key_src` / `s1_pem_src`. `*.pem`,
@@ -189,7 +189,7 @@ On the **target server**:
   Without AVX the mongo container crash-loops and the deploy fails ~7 minutes
   in at "Wait for mongo to be available".
   ```bash
-  grep -qw avx /proc/cpuinfo && echo OK || echo "MISSING — fix the CPU model"
+  grep -qw avx /proc/cpuinfo && echo OK || echo "MISSING - fix the CPU model"
   ```
   On **Proxmox** the default `kvm64` CPU model masks AVX. Set
   Hardware → Processors → Type to `host` (or `x86-64-v3`). Note that reverting
@@ -197,7 +197,7 @@ On the **target server**:
 - **Memory.** The console runs 20+ containers. Check the vendor prerequisites
   article for the official figure; the playbook defaults to a 16 GB hard floor
   and warns below 32 GB, with 8 vCPU recommended. Under-provisioned hosts do
-  not fail cleanly — the deploy runs for 20+ minutes, dies with
+  not fail cleanly - the deploy runs for 20+ minutes, dies with
   `Cannot allocate memory`, and can leave the box unable to fork `sshd`.
 - **UID and GID 847 must be free**, and no existing user or group named `s1`.
   These values are hard-coded in the installer and cannot be changed.
@@ -206,8 +206,8 @@ On the **target server**:
   ```
   All four should return nothing.
 - `/data` exists (or is creatable) with room for the console's databases
-- **iptables must not be disabled** — Docker manages NAT through it
-- `/tmp` must not be mounted `noexec` — it breaks the vendor's pip and Docker
+- **iptables must not be disabled** - Docker manages NAT through it
+- `/tmp` must not be mounted `noexec` - it breaks the vendor's pip and Docker
   installs
 
 Preflight checks every one of these before touching the host, so
@@ -248,12 +248,12 @@ ansible_user=your-ssh-user
 ansible_become=true
 ```
 
-`ansible_user` must be the account you SSH in as — it determines which home
+`ansible_user` must be the account you SSH in as - it determines which home
 directory the package is unpacked into.
 
 Do **not** set `ansible_python_interpreter`. The first play probes the target
-and installs `python3.11` if needed — RHEL 8.10 ships only Python 3.6, which
-modern ansible-core cannot manage — then pins whatever it found. On RHEL 9 this
+and installs `python3.11` if needed - RHEL 8.10 ships only Python 3.6, which
+modern ansible-core cannot manage - then pins whatever it found. On RHEL 9 this
 is a no-op: it ships Python 3.9 and the probe succeeds immediately.
 
 This is the interpreter Ansible uses to *manage* the target. It is unrelated to
@@ -272,7 +272,7 @@ s1_admin_fullname: CHANGEME
 s1_admin_email: changeme@example.com
 ```
 
-For an **air-gapped** install leave these empty — the playbook then skips them
+For an **air-gapped** install leave these empty - the playbook then skips them
 and the vendor's blank defaults are kept:
 
 ```yaml
@@ -293,7 +293,7 @@ ansible-vault encrypt group_vars/all/vault.yml
 
 It must be `group_vars/all/vault.yml`. A file at `group_vars/vault.yml` would
 map to a host group named `vault`, which does not exist, so it would never be
-loaded — and the missing password would only surface at preflight.
+loaded - and the missing password would only surface at preflight.
 
 Password rules: at least 10 characters, 3+ of uppercase / lowercase / digits /
 symbols, no whitespace, and no `"` or `'`. **The vendor's `config.yml` says at
@@ -315,7 +315,7 @@ ansible-playbook install.yml --tags preflight --ask-vault-pass
 ansible-playbook install.yml --ask-vault-pass
 ```
 
-Take a VM snapshot first if you can — a failed deploy is far easier to roll
+Take a VM snapshot first if you can - a failed deploy is far easier to roll
 back than to repair.
 
 ### 7. Confirm
@@ -340,36 +340,36 @@ ansible-playbook install.yml -e s1_force_redeploy=true --ask-vault-pass
 
 ## Troubleshooting
 
-**`failed=N` in the vendor PLAY RECAP** — the full log is written to
+**`failed=N` in the vendor PLAY RECAP** - the full log is written to
 `~/<VERSION>/deploy-<timestamp>.log`. For a support ticket, attach the `.err`
 and `.log` files from `/var/log/s1/migrations`.
 
-**`ERROR! [DEPRECATED]: ansible.builtin.include has been removed`** — a system
+**`ERROR! [DEPRECATED]: ansible.builtin.include has been removed`** - a system
 Ansible 2.16+ is being used instead of the vendor's pinned 2.15.x.
 `deploy_mgmt.yml` still uses the removed `include:` directive. Check the
-`binary :` line in the "Show the resolved Ansible runtime" output — it should
+`binary :` line in the "Show the resolved Ansible runtime" output - it should
 point at the vendor's install, not a system one. Pin it with `s1_playbook_bin`
 if discovery picked the wrong thing.
 
-**`cannot import the docker Python package`** — bootstrap resolved an
+**`cannot import the docker Python package`** - bootstrap resolved an
 interpreter that the vendor's `offline_installation.sh` did not install `docker`
 into. The message names the interpreter it tried; set `s1_python_interpreter` to
 the one that has it. This check exists because the alternative is failing 20+
 minutes into the deploy.
 
-**`Error starting container`** — `systemctl restart docker`.
+**`Error starting container`** - `systemctl restart docker`.
 
-**`rmtree failed: Device or resource busy: '/postgres'`** — only happens when
+**`rmtree failed: Device or resource busy: '/postgres'`** - only happens when
 `mount_dir` is empty. Confirm `s1_mount_dir` is set, then `umount /postgres`.
 
-**Podman conflicts** — the playbook removes `podman`, `podman-manpages` and
+**Podman conflicts** - the playbook removes `podman`, `podman-manpages` and
 `buildah` before installing docker-ce. If Docker still misbehaves,
 `systemctl restart docker`.
 
-**`KERNEL UPDATE INSTALLED - REBOOT REQUIRED`** — reboot and re-run. The
+**`KERNEL UPDATE INSTALLED - REBOOT REQUIRED`** - reboot and re-run. The
 playbook detects this and stops with that instruction.
 
-**Ansible reports Python 3.6 on RHEL 8 with an S-prefix package** — expected.
+**Ansible reports Python 3.6 on RHEL 8 with an S-prefix package** - expected.
 The bundled repo ships `python36`, not `python38`, and the vendor docs accept
 3.6 as the fallback. Only set `s1_install_python38: true` if you have RHSM or a
 DVD repo enabled and specifically need 3.8.

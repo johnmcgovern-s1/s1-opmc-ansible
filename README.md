@@ -4,7 +4,7 @@ A one-shot Ansible playbook that installs the **SentinelOne self-hosted
 (on-premises) Singularity Platform Management Console** (TGZ deployment) on
 Red Hat Enterprise Linux **8.10**, **9.x** and **10.x**, and Ubuntu **22.04** /
 **24.04**. See the [test matrix](#test-matrix) for exactly which release runs
-where — RHEL 10 takes O-26.1.1 and nothing earlier. The latest release covered
+where - RHEL 10 takes O-26.1.1 and nothing earlier. The latest release covered
 is **O-26.3.1**.
 
 ```bash
@@ -18,7 +18,7 @@ upgrading an existing console along the supported path
 `S-25.3.2 → O-25.4.4 → O-25.4.6 → O-26.1.1 → O-26.3.1`.
 
 The package can be pushed from the control node to each target, so it does not
-have to be baked into VM images — see
+have to be baked into VM images - see
 [Uploading the package](INSTALL.md#uploading-the-package-from-the-control-node).
 
 ---
@@ -62,9 +62,9 @@ postgres_dir: "{% if mount_dir %}{{ mount_dir }}/postgres{% else %}/postgres{% e
 
 Overwriting it with just the operator-facing keys would strip those and break
 the deploy. Values you leave empty are skipped entirely, so the vendor's blank
-default survives — which is exactly what an air-gapped install needs.
+default survives - which is exactly what an air-gapped install needs.
 
-## Ansible runtime — discovered, not tabulated
+## Ansible runtime - discovered, not tabulated
 
 The vendor moves `ansible-playbook` between releases, and it differs **for the
 same prefix on the same OS**:
@@ -88,15 +88,15 @@ so the path does not exist. Following the article literally fails.
 
 So the runtime is now read off the host after `offline_installation.sh` runs:
 
-1. **Binary** — `/root/.local/bin/ansible-playbook`. Every release examined
+1. **Binary** - `/root/.local/bin/ansible-playbook`. Every release examined
    creates it, as a real file or a symlink, because the vendor docs tell
    customers to invoke that path. The script comments call it out explicitly as
    "for backward compatibility".
-2. **Interpreter** — the shebang of that binary, after resolving symlinks. It
+2. **Interpreter** - the shebang of that binary, after resolving symlinks. It
    names the Python the vendor installed its Ansible into, which is also the
    one carrying the `docker` package: `/usr/bin/python3.11` for O-25.4.4,
    the venv's Python for O-25.4.6+.
-3. **Checked** — the derived interpreter must `import docker` before the deploy
+3. **Checked** - the derived interpreter must `import docker` before the deploy
    is allowed to start. A mismatch otherwise surfaces 20+ minutes in.
 
 Override with `s1_playbook_bin` / `s1_python_interpreter` to skip discovery. If
@@ -109,17 +109,17 @@ candidates rather than failing blind.
 pointing at `file://.../rhel8` (or `rhel9`) inside the unpacked package, and
 runs every install with `--disablerepo=* --enablerepo=sentinelone`. **RHSM
 registration, the DVD repo and internet access are all irrelevant** to the
-bootstrap — it works identically on a registered or unregistered host.
+bootstrap - it works identically on a registered or unregistered host.
 
 The single exception: the vendor docs suggest `yum install python3.8*` for
 S-prefix on RHEL 8. That package is *not* in the bundled repo (S ships
 `python36`, O ships `python3.11`), so it would need RHSM or a DVD repo. The
-docs explicitly accept Python 3.6 as the fallback, so this is off by default —
+docs explicitly accept Python 3.6 as the fallback, so this is off by default -
 enable with `s1_install_python38: true` only if you have an external repo.
 
 ## Air-gapped operation
 
-The vendor install never touches your repos — `offline_installation.sh` runs
+The vendor install never touches your repos - `offline_installation.sh` runs
 everything `--disablerepo=* --enablerepo=sentinelone` against RPMs bundled in
 the tarball. **One dependency reaches outside, and only on RHEL 8**: this
 playbook needs Python 3.8+ on the target, and RHEL 8.10 ships only 3.6 while
@@ -130,7 +130,7 @@ cheapest first:
 
 1. A suitable interpreter is already present → nothing to do.
 2. `dnf` from whatever repos the host has. Covers RHSM/CDN, **Satellite or
-   Capsule**, a local `reposync` mirror, and a mounted DVD repo equally — dnf
+   Capsule**, a local `reposync` mirror, and a mounted DVD repo equally - dnf
    does not care that the repo is internal.
 3. **The RPMs inside the tarball.** O-prefix packages bundle `python3.11` and
    `python39` under `docker_ansible/rhel/rhel8`. Needs no external access at
@@ -139,7 +139,7 @@ cheapest first:
 
 **S-prefix packages bundle only `python36`**, so tier 3 cannot rescue them. For
 a fully air-gapped **S-25.3.2** install with no repo of any kind, use
-**ansible-core ≤ 2.16 on the control node** — the last release supporting
+**ansible-core ≤ 2.16 on the control node** - the last release supporting
 Python 3.6 managed nodes, requiring nothing on the target:
 
 ```bash
@@ -159,7 +159,7 @@ docker_dir   → {{ mount_dir }}/dockers
 log_dir      → {{ mount_dir }}/s1
 ```
 
-With `s1_mount_dir: /data`, **only `/data` needs to exist** — the playbook
+With `s1_mount_dir: /data`, **only `/data` needs to exist** - the playbook
 creates the rest. The bare `/postgres` and `/mongo` paths (and the
 `Device or resource busy` errors in the vendor troubleshooting docs) only
 occur when `mount_dir` is left empty.
@@ -175,13 +175,13 @@ requirement**. Disk checks are advisory by default; set
   collections (`ansible-galaxy collection install -r requirements.yml`).
   `ansible.posix` is only used by the optional package upload, and `rsync` must
   also be installed on the target for it (`s1_upload_method=copy` needs neither). For a fully
-  air-gapped RHEL 8 target with no repositories, use ansible-core ≤ 2.16 —
+  air-gapped RHEL 8 target with no repositories, use ansible-core ≤ 2.16 -
   see [Air-gapped operation](#air-gapped-operation).
 - **Target**: RHEL 8.x, 9.x or 10.x, x86_64, SSH access with passwordless sudo.
-  RHEL 10 requires O-26.1.1 or later — see the [test matrix](#test-matrix)
-- **A CPU with AVX** — O-prefix packages ship MongoDB 5.0+, which requires it.
+  RHEL 10 requires O-26.1.1 or later - see the [test matrix](#test-matrix)
+- **A CPU with AVX** - O-prefix packages ship MongoDB 5.0+, which requires it.
   Proxmox's default `kvm64` model masks AVX; use `host` or `x86-64-v3`.
-- **Memory** — 20+ containers. The playbook defaults to a 16 GB floor and warns
+- **Memory** - 20+ containers. The playbook defaults to a 16 GB floor and warns
   below 32 GB, 8 vCPU recommended. Check the vendor prerequisites article for
   official figures.
 - UID/GID **847** free, and no pre-existing `s1` user or group
@@ -200,7 +200,7 @@ ones you are most likely to need:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `s1_package_path` | — | Path to the tarball **on the target** |
+| `s1_package_path` | - | Path to the tarball **on the target** |
 | `s1_install_base` | home of `ansible_user` | Where `~/<VERSION>/` is unpacked |
 | `s1_mount_dir` | `/data` | Parent for all console data paths |
 | `s1_force_redeploy` | `false` | Re-run the deploy over an existing install |
@@ -210,9 +210,9 @@ ones you are most likely to need:
 | `s1_require_avx` | `true` | Block O-prefix installs on a CPU without AVX |
 | `s1_verify_storage` / `s1_storage_fail_hard` | `true` / `false` | Disk checks; advisory by default |
 | `s1_install_python38` | `false` | S-prefix on RHEL 8 only; needs an external repo |
-| `s1_cert_dir` | `/etc/sentinelone/certs` | Where the key/PEM are staged **on the target**. The vendor article says `/tmp`; don't — see below |
+| `s1_cert_dir` | `/etc/sentinelone/certs` | Where the key/PEM are staged **on the target**. The vendor article says `/tmp`; don't - see below |
 | **Upgrade only** | | |
-| `s1_snapshot_confirmed` | `false` | Must be `true` — the snapshot gate |
+| `s1_snapshot_confirmed` | `false` | Must be `true` - the snapshot gate |
 | `s1_skip_chain_check` | `false` | Bypass version-skip protection (see below) |
 | `s1_force_empty_mount_dir` | `false` | Force the vendor doc's `mount_dir` form |
 | `s1_postgres_dir` / `s1_mongo_dir` | auto-detected | Override database locations |
@@ -220,7 +220,7 @@ ones you are most likely to need:
 | `s1_force_legacy_token` | `null` (untouched) | Set `false` for EDG / hybrid-EDR |
 
 **Do not stage certificates in `/tmp`.** The vendor install article says to copy
-them there, and the file being copied is an unencrypted private key — the same
+them there, and the file being copied is an unencrypted private key - the same
 article requires it to be passphrase-less. `/tmp` is world-writable, the article
 specifies no file modes, and nothing removes the key afterwards, so it stays
 readable for the life of the console.
@@ -228,12 +228,12 @@ readable for the life of the console.
 `30_certs.yml` refuses a world-writable `s1_cert_dir` rather than staging a key
 into one (`s1_allow_world_writable_cert_dir=true` to override). It also creates
 the directory **only when absent** and never alters the permissions of one it
-did not create — an earlier version enforced `0700 root:root` on whatever path
+did not create - an earlier version enforced `0700 root:root` on whatever path
 it was given, which turned `/tmp` from `1777` into root-only and broke every
 non-root process depending on it.
 
 **Versions cannot be skipped.** `upgrade.yml` reads `/s1/version.json`, computes
-the one legal next hop, and refuses anything else — S-25.3.2 → O-26.1.1 is three
+the one legal next hop, and refuses anything else - S-25.3.2 → O-26.1.1 is three
 separate runs. `s1_skip_chain_check=true` bypasses *this* playbook's check but
 not the product's migrations, which assume each prior release ran; use it only
 for a path Support has approved.
@@ -257,7 +257,7 @@ roles/s1_upgrade/            the upgrade role (reuses staging + bootstrap)
 
 ## Test matrix
 
-What has actually been run, and where the vendor packages can be run at all —
+What has actually been run, and where the vendor packages can be run at all -
 two different things, so the status legend covers both:
 
 | | Meaning |
@@ -266,15 +266,15 @@ two different things, so the status legend covers both:
 | 🚧 | Under test right now |
 | ⬜ | The vendor package supports it; this project has not tested it |
 | 🔜 | Not supported yet by these playbooks; on the roadmap |
-| ❌ | The vendor package does not ship an installer for it — `offline_installation.sh` exits with `Error: RHEL <version> is not supported` |
+| ❌ | The vendor package does not ship an installer for it - `offline_installation.sh` exits with `Error: RHEL <version> is not supported` |
 
 A ✅ also records **how** that release was reached, because the two routes run
 different code and are not interchangeable:
 
 | | Route |
 |---|---|
-| **(I)** | Clean install — `install.yml` against a bare host |
-| **(U)** | Reached by upgrading from the release above it — `upgrade.yml` |
+| **(I)** | Clean install - `install.yml` against a bare host |
+| **(U)** | Reached by upgrading from the release above it - `upgrade.yml` |
 
 ### Release × platform
 
@@ -292,7 +292,7 @@ tarballs on 2026-08-04.
 | O-26.3.1 | ⬜ | ⏳ not yet tested | ✅ 9.9 **(I, U)** | ✅ 10.3 **(I)** | 🔜 | ⏳ not yet tested | ✅ 24.04.5 **(I, U)** |
 
 The **(I)** / **(U)** markers show that on **RHEL 8 and RHEL 9 every release has
-been validated by both routes** — clean-installed directly onto a bare host, and
+been validated by both routes** - clean-installed directly onto a bare host, and
 also reached by upgrading from S-25.3.2. That matters because installing the
 current release directly is the likelier customer path, and it exercises
 different code: the install and upgrade roles use separate config stages with
@@ -306,7 +306,7 @@ could precede O-26.1.1 runs there.
 | s1console | RHEL 8.10 | ✅ S-25.3.2 | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | s1console02 | RHEL 9.7 | ✅ S-25.3.2 | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | rhel03 | RHEL 10.2 | ✅ O-26.1.1 | ❌ not possible | O-26.1.1, 21 containers, none down |
-| rhel01 | RHEL 8.10 | ✅ all four releases | — not run | each verified independently, none down |
+| rhel01 | RHEL 8.10 | ✅ all four releases | - not run | each verified independently, none down |
 | rhel02 | RHEL 9.7 | ✅ all four releases | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | ubuntu2404 | Ubuntu 24.04.4 | ✅ all three that ship `ubuntu_24` | ✅ both hops | O-26.1.1, 21 containers, none down |
 | ubuntu2204 | Ubuntu 22.04.5 | ✅ S-25.3.2, O-26.1.1 | ✅ all three hops | O-26.1.1, 21 containers, none down |
@@ -317,7 +317,7 @@ could precede O-26.1.1 runs there.
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
 on its own rather than inheriting state from the release before it. Container
-counts fall identically on both platforms as the vendor retires components — 26
+counts fall identically on both platforms as the vendor retires components - 26
 for S-25.3.2, 25 for O-25.4.4, then 21 for both O-25.4.6 and O-26.1.1.
 
 `rhel02` then ran the **upgrade chain separately**, from a fresh S-25.3.2 install
@@ -325,7 +325,7 @@ through all three hops, snapshotting between each. So RHEL 9.7 has both routes
 validated independently on the same host at the same specification.
 
 **RHEL 10 takes a clean O-26.1.1 install and nothing else.** RHEL 10 support
-arrives in O-26.1.1 — S-25.3.2, O-25.4.4 and O-25.4.6 have no `10*` arm and
+arrives in O-26.1.1 - S-25.3.2, O-25.4.4 and O-25.4.6 have no `10*` arm and
 refuse to install. Since no release that could *precede* O-26.1.1 will run on
 RHEL 10, there is no chain to upgrade along. Both preflights enforce this
 (`s1_min_version_rhel10`), so the failure is a clear message rather than a
@@ -333,14 +333,14 @@ vendor error 20 minutes in.
 
 ### Ubuntu
 
-**22.04 and 24.04 LTS are supported**, from bare hosts with no overrides —
+**22.04 and 24.04 LTS are supported**, from bare hosts with no overrides -
 `failed=0`, console serving HTTPS, no unexpectedly unhealthy containers.
 
 - **22.04** carries the **full chain**: S-25.3.2 installs, then all three hops
   through to O-26.1.1, plus a direct O-26.1.1 install. Same coverage as RHEL 8
   and 9.
-- **24.04** covers every release shipping `ubuntu_24` — O-25.4.4, O-25.4.6 and
-  O-26.1.1 — by install and by both hops.
+- **24.04** covers every release shipping `ubuntu_24` - O-25.4.4, O-25.4.6 and
+  O-26.1.1 - by install and by both hops.
 
 The difference is the packages themselves: **`ubuntu_22` ships in every release
 including S-25.3.2, while `ubuntu_24` first appears in O-25.4.4.** So 22.04 is
@@ -355,9 +355,9 @@ bootstrap discovers rather than assumes:
 
 | | `ubuntu_22` | `ubuntu_24` |
 |---|---|---|
-| Ansible | `dpkg -i ansible/*` — distro package, **2.10.8** | `pip --break-system-packages` — **2.15.13** |
+| Ansible | `dpkg -i ansible/*` - distro package, **2.10.8** | `pip --break-system-packages` - **2.15.13** |
 | `ansible-playbook` | `/usr/bin` | `/usr/local/bin` |
-| `docker` Python module | installed by the script | **never installed** — this project supplies it |
+| `docker` Python module | installed by the script | **never installed** - this project supplies it |
 | `readfp` patch | absent, and unnecessary on Python 3.10 | present and **silently broken** |
 | `python-is-python3` | absent | bundled, installed incidentally |
 
@@ -368,20 +368,20 @@ a future Ubuntu should need neither change.
 **The bare-`python` problem affects every Ubuntu, and used to decide which
 releases worked.** `deploy_mgmt.yml` runs `python -c "import uuid;..."`, and no
 Ubuntu since 20.04 ships `/usr/bin/python`. That line is byte-identical across
-every release examined — the vendor never fixed it. What differed was whether a
+every release examined - the vendor never fixed it. What differed was whether a
 release's `pip/` bundle happened to include `python-is-python3`: `ubuntu_24`'s
 does from O-25.4.6, `ubuntu_22`'s never does. So the platform worked or failed
 on the incidental contents of a bundle.
 
 `s1_ubuntu_provide_python` creates the same symlink that package would, only
 when absent. That removed the dependency entirely, and with it the reason
-O-25.4.4 was refused on 24.04 — it now installs cleanly there, 25 containers,
+O-25.4.4 was refused on 24.04 - it now installs cleanly there, 25 containers,
 none unexpectedly unhealthy. `s1_min_version_ubuntu24` is therefore back to
 **25.4.4**, meaning what it says: the first release that ships the tooling.
 
 Ubuntu needs its own bootstrap because the vendor ships two entirely separate
-mechanisms. There is **no `offline_installation.sh` outside `rhel/`** — that
-script is the dispatcher the RHEL path shells out to — and `ubuntu_24` has no
+mechanisms. There is **no `offline_installation.sh` outside `rhel/`** - that
+script is the dispatcher the RHEL path shells out to - and `ubuntu_24` has no
 `install_everything.sh` wrapper either. So `42_bootstrap_ubuntu.yml` calls
 `install_docker_and_pip.sh` and `install_ansible.sh` directly, passing the
 offline/online argument **explicitly to both**: they interpret it inversely, and
@@ -396,7 +396,7 @@ run at all, both applied by `43_bootstrap_ubuntu_fixups.yml`:
   without this it cannot start.
 - `install_docker_and_pip.sh` carries a patch rewriting the removed
   `configparser.readfp()` for Python 3.12, but it resolves `import ansible` from
-  its own directory — where the bundled wheel folder is also called `ansible`.
+  its own directory - where the bundled wheel folder is also called `ansible`.
   It therefore patches the wheel directory, finds nothing, and exits 0. The
   incompatibility survives unpatched on a platform that ships Python 3.12.
 
@@ -405,7 +405,7 @@ Both fixes run **after** the vendor scripts on every invocation, not once:
 Ansible and reverts the patch.
 
 Everything else generalised without change. Runtime discovery needed only a new
-starting path — Ubuntu does not create the `/root/.local/bin/ansible-playbook`
+starting path - Ubuntu does not create the `/root/.local/bin/ansible-playbook`
 that every RHEL release makes deliberately, so the search begins at
 `/usr/local/bin` and reads the same shebang. `tasks/bootstrap_python.yml`
 self-skips, since 24.04 already ships Python 3.12.
@@ -414,10 +414,10 @@ self-skips, since 24.04 already ships Python 3.12.
 
 Ordered by value, not by effort.
 
-### 1. Ubuntu 24.04 LTS — install and upgrade
+### 1. Ubuntu 24.04 LTS - install and upgrade
 
-**Done for 24.04, by both routes.** All three releases shipping `ubuntu_24` —
-O-25.4.4, O-25.4.6 and O-26.1.1 — install cleanly from a fresh snapshot, and the
+**Done for 24.04, by both routes.** All three releases shipping `ubuntu_24` -
+O-25.4.4, O-25.4.6 and O-26.1.1 - install cleanly from a fresh snapshot, and the
 full chain runs clean, snapshotting between hops:
 
 ```
@@ -429,7 +429,7 @@ tooling does. That gives Ubuntu 24.04 the same coverage RHEL 8 and 9 have:
 every release reachable by install and by upgrade.
 
 Worth noting from the hops: the container set drops 25 → 21 on
-`O-25.4.4 → O-25.4.6`, and does so **cleanly** — no stale image, nothing
+`O-25.4.4 → O-25.4.6`, and does so **cleanly** - no stale image, nothing
 stranded. The `S→O` transition behaves differently: it leaves a retired
 container running the *previous* release's image, which the following hop then
 clears. Reproduced identically on RHEL and on Ubuntu 22.04, so it belongs to the
@@ -438,7 +438,7 @@ one release rather than accumulating.
 
 Preflight enforces the floor via `s1_min_version_ubuntu24`, in both roles. One
 hop is thinner than hoped, but it is the only exercise the upgrade role gets on
-a non-RHEL platform, and it covers stages the install path never touches —
+a non-RHEL platform, and it covers stages the install path never touches -
 `40_config.yml` with its different `mount_dir` handling, `50_presteps.yml`, the
 Postgres detection, and the expected-broken container handling.
 
@@ -447,12 +447,12 @@ bootstrap does **not** drift between releases, unlike RHEL where the vendor
 moved `ansible-playbook` between releases and between OS majors: both scripts
 are byte-identical across O-25.4.4 and O-25.4.6, and every release needed the
 same two fix-ups. And the upgrade leaves no stale container behind, unlike the
-RHEL `S→O` hop — consistent with that divergence being specific to O-25.4.4.
+RHEL `S→O` hop - consistent with that divergence being specific to O-25.4.4.
 What varies on Ubuntu is the *bundle contents* and the deploy playbook, not the
 installer.
 
 **Done.** 24.04 is complete by both routes, and 22.04 carries the full
-four-release chain — the same coverage RHEL 8 and 9 have. The bootstrap selects
+four-release chain - the same coverage RHEL 8 and 9 have. The bootstrap selects
 tooling and binary path per release rather than assuming one layout, so
 `ubuntu_18` and `ubuntu_20` should follow without structural change if they are
 ever wanted.
@@ -460,7 +460,7 @@ ever wanted.
 ### 2. Straight-to-version installs
 
 **Done.** All four releases have been clean-installed on both RHEL 8.10 and
-RHEL 9.7 — eight installs, each onto a host reverted to a fresh snapshot first,
+RHEL 9.7 - eight installs, each onto a host reverted to a fresh snapshot first,
 all `failed=0` with the console serving HTTPS. This was worth doing because a
 straight install is the more common real-world path: a new customer installs
 whatever is current rather than installing a year-old release and chaining
@@ -484,7 +484,7 @@ a record of what the gap was and why it mattered.
 ### 3. The RHEL 10 kernel-reboot guard
 
 `40_bootstrap.yml` carries a guard that has never been triggered on a live host
-— `source review` evidence, not `observed`. Two independent RHEL 10.2 installs
+- `source review` evidence, not `observed`. Two independent RHEL 10.2 installs
 have now run without it firing, on standard (non-Marketplace) images, which is
 consistent with where the vendor says it applies rather than evidence the guard
 is wrong.
@@ -494,7 +494,7 @@ installing `docker-ce` (RHEL 10's `iptables-nft` has a conditional dependency on
 `kernel-modules-extra` that cannot resolve from an offline repo). If they are
 missing it installs four bundled RPMs from
 `docker_ansible/rhel/rhel10/kernel_modules/`, prints
-`KERNEL UPDATE INSTALLED - REBOOT REQUIRED.` — and then **exits 0**.
+`KERNEL UPDATE INSTALLED - REBOOT REQUIRED.` - and then **exits 0**.
 
 That exit code is the whole problem. A success-looking return would carry the
 play on to the vendor deploy against a host with no Docker, so the guard matches
@@ -509,12 +509,12 @@ affecting AWS Marketplace RHEL 10 images; standard installs on Nutanix or bare
 metal ship the modules and never trigger it, which is why `rhel03` did not.
 Verify both halves: the play stops at bootstrap with the reboot message, and a
 re-run after `sudo reboot` completes. Being a substring match, it would also
-fail quietly if the vendor ever rewords the banner — worth re-checking against
+fail quietly if the vendor ever rewords the banner - worth re-checking against
 each new release.
 
 ### Not planned
 
-RHEL 7 (past end of maintenance — preflight warns), Ubuntu 14 through 22, and
+RHEL 7 (past end of maintenance - preflight warns), Ubuntu 14 through 22, and
 the Postgres 11→15 migration path, which needs a console old enough to still be
 on Postgres 11.
 
@@ -528,23 +528,23 @@ reporting `failed=0` with the console serving HTTPS throughout.
 S-25.3.2  →  O-25.4.4  →  O-25.4.6  →  O-26.1.1
 ```
 
-**RHEL 10.2** is validated for a clean O-26.1.1 install — `failed=0`, 21
+**RHEL 10.2** is validated for a clean O-26.1.1 install - `failed=0`, 21
 containers, console serving HTTPS, at unmodified defaults. There is no chain to
 run there; see [RHEL 10.2 notes](#rhel-102-notes).
 
 **RHEL 8.10 and RHEL 9.7** additionally have every release validated as a
 *straight* clean install, not only as an upgrade target: S-25.3.2, O-25.4.4,
 O-25.4.6 and O-26.1.1 were each installed onto a host reverted to a fresh
-snapshot beforehand — eight installs in total, all reporting `failed=0` with the
+snapshot beforehand - eight installs in total, all reporting `failed=0` with the
 console serving HTTPS.
 
 **Ubuntu 22.04 and 24.04 LTS** are validated. 22.04 carries the full
-four-release chain — S-25.3.2 installed, then all three hops to O-26.1.1 — the
+four-release chain - S-25.3.2 installed, then all three hops to O-26.1.1 - the
 same coverage RHEL 8 and 9 have. 24.04 covers every release shipping its tooling
 by install and by both hops. `failed=0` throughout, console serving HTTPS,
 nothing unexpectedly unhealthy, from bare hosts with no overrides. The vendor's
 own `deploy_mgmt.yml` runs on both unmodified; what this project adds is a
-separate bootstrap path and fixes for work the vendor's Ubuntu scripts omit —
+separate bootstrap path and fixes for work the vendor's Ubuntu scripts omit -
 which differ by release, since the two trees install by different mechanisms.
 See [Ubuntu](#ubuntu).
 
@@ -554,8 +554,8 @@ Exercised against a live host:
 - The Python bootstrap, both from configured repos and **fully air-gapped**
   with zero repositories, installing from the tarball's own bundled RPMs
 - In-place config editing, preserving every vendor key
-- Runtime discovery across all three vendor layouts — `pip3 --user`,
-  `--prefix=/usr/local` and the venv — including the mid-chain change on RHEL 9
+- Runtime discovery across all three vendor layouts - `pip3 --user`,
+  `--prefix=/usr/local` and the venv - including the mid-chain change on RHEL 9
 - Upgrade chain validation, Postgres version detection, database-path probing
 - The S→O prefix transition, including the MongoDB 4.4 → 5.0 jump that makes
   AVX mandatory
@@ -621,12 +621,12 @@ Two things differ from RHEL 8.10, both already handled:
   bundled-RPM tier is therefore exercised on RHEL 8 only.
 - **The vendor moves `ansible-playbook` mid-chain.** O-25.4.4 installs to
   `/usr/local/bin`; O-25.4.6 switches RHEL 9 to a venv under
-  `/opt/sentinelone/installer`. A hardcoded table cannot express that — see
+  `/opt/sentinelone/installer`. A hardcoded table cannot express that - see
   [Ansible runtime](#ansible-runtime--discovered-not-tabulated). This is
   invisible on RHEL 8, where every O release uses `/usr/local/bin`.
 
-Everything recorded above for RHEL 9.7 — the four clean installs and the full
-upgrade chain — was run at the playbook's unmodified defaults, with no
+Everything recorded above for RHEL 9.7 - the four clean installs and the full
+upgrade chain - was run at the playbook's unmodified defaults, with no
 overrides of any kind.
 
 ### RHEL 10.2 notes
@@ -635,10 +635,10 @@ Clean install of O-26.1.1, `failed=0`, 21 containers up, HTTPS 200. What
 differs from the earlier platforms:
 
 - **Install only, by force.** RHEL 10 support arrives in O-26.1.1, so nothing
-  that could precede it will install — see the [test matrix](#test-matrix).
+  that could precede it will install - see the [test matrix](#test-matrix).
   The upgrade role is therefore untested on RHEL 10, and will stay that way
   until a release ships that O-26.1.1 can upgrade *to*.
-- **No Python bootstrap**, as on RHEL 9 — RHEL 10 ships `python3.12` as
+- **No Python bootstrap**, as on RHEL 9 - RHEL 10 ships `python3.12` as
   `/usr/bin/python3`, and `tasks/bootstrap_python.yml` exits at its first probe.
 - **A fourth vendor runtime layout, discovered without a code change.** The
   venv is `python3.12`-based:
@@ -657,13 +657,13 @@ differs from the earlier platforms:
   can install missing kernel modules and demand a reboot before the deploy can
   continue; `40_bootstrap.yml` detects that and stops with instructions. The
   vendor documents it as mostly affecting AWS Marketplace images, and this
-  host (a standard install) did not hit it — so that guard remains untested.
+  host (a standard install) did not hit it - so that guard remains untested.
 
-Validated at the playbook's unmodified defaults, with no overrides — 16 GB and
+Validated at the playbook's unmodified defaults, with no overrides - 16 GB and
 8 vCPU, finishing with ~6.5 GB still available and swap essentially untouched.
 
 **Not yet exercised:** the Postgres 11→15 migration path (`upgrade_postgres` /
-`dump_dir` — every console tested was already on 15), any upgrade hop on
+`dump_dir` - every console tested was already on 15), any upgrade hop on
 RHEL 10, RHEL 7, and Ubuntu releases before 22.04. The [Roadmap](#roadmap) says
 which of those are being picked up and in what order.
 
@@ -674,10 +674,10 @@ are deliberately not redistributed in this repository.
 
 ## License
 
-MIT — see [LICENSE.md](LICENSE.md).
+MIT - see [LICENSE.md](LICENSE.md).
 
 The SentinelOne deployment packages this automates are **not** covered by that
 licence. They are SentinelOne's own software, distributed under your agreement
-with SentinelOne, and are not redistributed here — see
+with SentinelOne, and are not redistributed here - see
 [Repository layout](#repository-layout) for what `installers/` expects you to
 supply yourself.
