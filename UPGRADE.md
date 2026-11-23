@@ -391,8 +391,15 @@ install snapshotted before the hop; both confirmed in the console as O-26.3.1.32
 Both preserved `/data/s1` and `/data/uploads`, ran with no Postgres action, and
 left Docker's systemd start limits at their defaults. The upgrade role applies
 the same temporary Docker start-limit drop-in as the install - see
-[O-26.3.1 notes](README.md#o-2631-notes). RHEL 8.10 and Ubuntu 22.04 have not
-been tested on this hop.
+[O-26.3.1 notes](README.md#o-2631-notes). Ubuntu 22.04 has not been tested on
+this hop.
+
+**O-26.1.1 → O-26.3.1.37 in one hop** (tested November 2026 on RHEL 8.10 from a
+fresh O-26.1.1 clean install, snapshotted before the hop): `ok=103 changed=14
+failed=0`, 21 containers none down, console 200, confirmed in Help > About as
+O-26.3.1.37. A following `install.yml` run gave `changed=2` and then `changed=0`.
+This is the route a customer on 26.1.1 takes when 037 is the only package they
+have; it does not need build 032.
 
 **O-26.3.1 build 32 → build 37** (a [patch build](#patch-builds-of-the-same-release),
 tested November 2026, snapshotted before the hop):

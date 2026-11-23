@@ -313,6 +313,9 @@ could precede O-26.1.1 runs there.
 | rhel97 (2026-11) | RHEL 9.9 | ✅ O-26.3.1.32, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.32, ✅ 26.3.1.32 → .37 | O-26.3.1.37, 21 containers, none down |
 | rhel102 (2026-11) | RHEL 10.3 | ✅ O-26.3.1 | ❌ not possible | O-26.3.1, 21 containers, none down |
 | ubuntu2404 (2026-11) | Ubuntu 24.04.5 | ✅ O-26.3.1, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.32, ✅ 26.3.1.32 → .37 | O-26.3.1.37, 21 containers, none down |
+| rhel810 (2026-11) | RHEL 8.10 | ✅ O-26.3.1.37, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.37 (one hop) | O-26.3.1.37, 21 containers, none down |
+| ubuntu2204 (2026-11) | Ubuntu 22.04.5 | ✅ O-26.3.1.37 | not run | O-26.3.1.37, 21 containers, none down |
+| ubuntu2604 (2026-11) | Ubuntu 26.04 | ❌ refused at preflight | - | unchanged (`changed=0`) |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
@@ -610,8 +613,15 @@ the 9.7 / 10.2 used in earlier campaigns.
   RHEL 9.9 and Ubuntu 24.04.5 (build 32 → 37, `failed=0`, About shows
   O-26.3.1.37 on both). See
   [UPGRADE.md](UPGRADE.md#patch-builds-of-the-same-release).
-- **Not yet tested on O-26.3.1:** RHEL 8.10, Ubuntu 22.04, and Ubuntu 26.04
-  (the package ships no `ubuntu_26` tooling, so it is expected to be refused).
+- **Ubuntu 26.04 is refused.** The package ships no `ubuntu_26` tooling, and the
+  playbook stops at the OS gate with a clear message and `changed=0`. Confirmed
+  on a live host; `s1_allow_unsupported_os=true` overrides it.
+- **RHEL 8.10 with no repos.** The playbook needs a Python 3.8+ on the target and
+  falls back to the RPMs bundled in the package, which have to be on the host
+  first. When `s1_package_local_src` is set, `tasks/bootstrap_python.yml` uploads
+  the package itself for this case, using rsync only (the `copy` method needs a
+  target Python, so it is refused there). Validated on `rhel810`.
+- **Not yet tested on O-26.3.1:** upgrades on Ubuntu 22.04.
 
 ### RHEL 9.7 notes
 
