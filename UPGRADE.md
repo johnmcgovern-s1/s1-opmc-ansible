@@ -39,6 +39,41 @@ playbook four times, staging a different package each time.
 Adding a new release is a one-line change — append it to `s1_upgrade_order` in
 [roles/s1_upgrade/defaults/main.yml](roles/s1_upgrade/defaults/main.yml).
 
+### Patch builds of the same release
+
+The vendor sometimes ships a **new build of a release you already run** — for
+example `sentinel_mgmt_o_26_3_1_037.tar.gz` (security fixes) after
+`…_032.tar.gz`. Both report `release: O-26.3.1` in `version.json`; only
+`management_tag` (`o_26_3_1_032` vs `o_26_3_1_037`) and the trailing build number
+in the filename differ. There is no new entry for `s1_upgrade_order`. Run
+`upgrade.yml` with the newer package as for any hop:
+
+```bash
+ansible-playbook upgrade.yml -e s1_snapshot_confirmed=true \
+  -e s1_package_path=/var/tmp/sentinel_mgmt_o_26_3_1_037.tar.gz \
+  -e s1_package_local_src=~/Downloads/sentinel_mgmt_o_26_3_1_037.tar.gz
+```
+
+- The build is the **trailing number in the filename** — do not rename vendor
+  packages. After unpacking, the playbook asserts it matches `management_tag`
+  inside the package.
+- A **higher build of the installed release** is a valid step. The **same build**
+  is refused ("already installed"), and a **lower build** is refused as a
+  downgrade. The vendor's own downgrade check only runs when `docker_tag` is
+  passed, which this playbook never does, so this guard is the only one.
+- The package unpacks into `~/<VERSION>.<BUILD>/` (`~/O-26.3.1.037/`) when
+  `~/<VERSION>/` already holds a different build. Without that, the stage step
+  would see the existing directory, skip unpacking, and silently deploy the old
+  build. The first build of a release keeps the plain `~/<VERSION>/` name.
+- After the upgrade the playbook asserts `/s1/version.json` reports the staged
+  build. The vendor rewrites `management_tag` and sets `minor` to the build
+  number, which is what Help > About shows (`26.3.1.37`).
+- This is a normal full upgrade (about the same time as any hop), not a
+  lightweight patch. SentinelOne also ships some fixes as small patches applied
+  to a running console (for example for O-26.1.1); that mechanism is **not**
+  implemented here. Whether a patch-only route exists for O-26.3.1 is
+  unconfirmed — check with Support if you want one instead of an upgrade.
+
 ---
 
 ## Before you start
@@ -358,6 +393,13 @@ left Docker's systemd start limits at their defaults. The upgrade role applies
 the same temporary Docker start-limit drop-in as the install — see
 [O-26.3.1 notes](README.md#o-2631-notes). RHEL 8.10 and Ubuntu 22.04 have not
 been tested on this hop.
+
+**O-26.3.1 build 32 → build 37** (a [patch build](#patch-builds-of-the-same-release),
+tested November 2026 on RHEL 9.9 from a fresh build-32 install, snapshotted before
+the hop): `ok=103 changed=14 failed=0`, 21 containers none down, `/s1/version.json`
+reporting `o_26_3_1_037` / `minor 37`, confirmed in Help > About as O-26.3.1.37.
+Only RHEL 9.9 has run this step; Ubuntu and RHEL 10 have not. That the nginx
+fixes in build 37 are effective was not independently verified.
 
 (The RHEL 8.10 figures are the vendor playbook's recap; the RHEL 9.7 figures are
 this playbook's. Both reported `failed=0` at each layer.)

@@ -92,7 +92,10 @@ directory in the home of the SSH user, giving `~/S-25.3.2/`. The tarballs
 extract *flat* (no top-level directory), so this produces
 `~/S-25.3.2/docker_ansible/...` exactly as the vendor docs assume. Old version
 directories are left in place to make upgrades easy — **pruning them is your
-responsibility**. Budget ~20 GB of free space in `/home` per version retained.
+responsibility**. If that directory already holds a *different build* of the same
+release (a patch build such as `…_037` after `…_032`), the new package goes into
+`~/<VERSION>.<BUILD>/` (`~/O-26.3.1.037/`) instead, so the older tree is never
+silently reused; see [patch builds](UPGRADE.md#patch-builds-of-the-same-release). Budget ~20 GB of free space in `/home` per version retained.
 
 Override the parent directory if `/home` is too small:
 
