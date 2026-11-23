@@ -312,7 +312,7 @@ could precede O-26.1.1 runs there.
 | ubuntu2204 | Ubuntu 22.04.5 | ✅ S-25.3.2, O-26.1.1 | ✅ all three hops | O-26.1.1, 21 containers, none down |
 | rhel97 (2026-11) | RHEL 9.9 | ✅ O-26.3.1.32, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.32, ✅ 26.3.1.32 → .37 | O-26.3.1.37, 21 containers, none down |
 | rhel102 (2026-11) | RHEL 10.3 | ✅ O-26.3.1 | ❌ not possible | O-26.3.1, 21 containers, none down |
-| ubuntu2404 (2026-11) | Ubuntu 24.04.5 | ✅ O-26.3.1, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1 | O-26.3.1.32, 21 containers, none down |
+| ubuntu2404 (2026-11) | Ubuntu 24.04.5 | ✅ O-26.3.1, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.32, ✅ 26.3.1.32 → .37 | O-26.3.1.37, 21 containers, none down |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
 onto a host reverted to the same clean snapshot beforehand, so each result stands
@@ -607,7 +607,8 @@ the 9.7 / 10.2 used in earlier campaigns.
   032. `upgrade.yml` treats a higher build of the installed release as a valid
   step (`checksums.yml` has both packages), refuses the same or a lower build, and
   unpacks into `~/O-26.3.1.037/` so build 032's tree is not reused. Validated on
-  RHEL 9.9 (build 32 → 37, `failed=0`, About shows O-26.3.1.37). See
+  RHEL 9.9 and Ubuntu 24.04.5 (build 32 → 37, `failed=0`, About shows
+  O-26.3.1.37 on both). See
   [UPGRADE.md](UPGRADE.md#patch-builds-of-the-same-release).
 - **Not yet tested on O-26.3.1:** RHEL 8.10, Ubuntu 22.04, and Ubuntu 26.04
   (the package ships no `ubuntu_26` tooling, so it is expected to be refused).

@@ -395,10 +395,18 @@ the same temporary Docker start-limit drop-in as the install - see
 been tested on this hop.
 
 **O-26.3.1 build 32 → build 37** (a [patch build](#patch-builds-of-the-same-release),
-tested November 2026 on RHEL 9.9 from a fresh build-32 install, snapshotted before
-the hop): `ok=103 changed=14 failed=0`, 21 containers none down, `/s1/version.json`
-reporting `o_26_3_1_037` / `minor 37`, confirmed in Help > About as O-26.3.1.37.
-Only RHEL 9.9 has run this step; Ubuntu and RHEL 10 have not. That the nginx
+tested November 2026, snapshotted before the hop):
+
+| Host | Starting point | Result | Notes |
+|---|---|---|---|
+| RHEL 9.9 | fresh build-32 install | `ok=103 changed=14 failed=0` | 21 containers, none down |
+| Ubuntu 24.04.5 | build 32 reached by upgrade from O-26.1.1 | `ok=111 changed=13 failed=0` | 21 containers, none down |
+
+Both reported `o_26_3_1_037` / `minor 37` in `/s1/version.json`, confirmed in
+Help > About as O-26.3.1.37. On Ubuntu a following `install.yml` run gave
+`changed=2` (config values written to the new tree) and then `changed=0`.
+RHEL 10 is install-only for build 37 and has not been tested; RHEL 8.10 and
+Ubuntu 22.04 have not run this step. That the nginx
 fixes in build 37 are effective was not independently verified.
 
 (The RHEL 8.10 figures are the vendor playbook's recap; the RHEL 9.7 figures are
