@@ -78,6 +78,66 @@
         # installs RPMs with gpgcheck disabled — so the tarball must be
         # verified here, not just at staging time. Role defaults are not in
         # scope in this play, hence the explicit fallbacks.
+        # The role's own upload (tasks/upload_package.yml) cannot run yet: it
+        # uses stat/file/command, all of which need the very Python this play is
+        # trying to provide. So when tier 3 is reached with s1_package_local_src
+        # set, push the package here with only `raw` and rsync, neither of which
+        # needs a target Python. Skipped when the file is already the right size.
+        - name: Stat the package on the control node
+          ansible.builtin.stat:
+            path: "{{ s1_package_local_src }}"
+          delegate_to: localhost
+          become: false
+          register: s1_boot_local
+          when: (s1_package_local_src | default('')) | length > 0
+
+        - name: Read the package size on the target
+          ansible.builtin.raw: stat -c %s {{ s1_package_path | quote }} 2>/dev/null || echo 0
+          register: s1_boot_remote_size
+          changed_when: false
+          when: (s1_package_local_src | default('')) | length > 0
+
+        - name: Fail when the package cannot be uploaded without a target Python
+          ansible.builtin.fail:
+            msg: >-
+              {{ inventory_hostname }} has no Python ansible-core can use and no
+              repo to install one from, so the package's bundled RPMs are needed
+              before the normal upload stage can run. The copy method cannot
+              work without a target Python. Use s1_upload_method=rsync (needs
+              rsync on the target), or place the package at {{ s1_package_path }}
+              by hand.
+          when:
+            - (s1_package_local_src | default('')) | length > 0
+            - (s1_boot_remote_size.stdout | trim | int) != (s1_boot_local.stat.size | default(0))
+            - (s1_upload_method | default('rsync')) != 'rsync'
+
+        - name: Upload the package with rsync (no target Python needed)
+          ansible.posix.synchronize:
+            src: "{{ s1_package_local_src }}"
+            dest: "{{ s1_package_path }}"
+            mode: push
+            archive: false
+            times: false
+            delay_updates: false
+            compress: false
+            rsync_opts:
+              - "--partial"
+              - "--inplace"
+          become: false
+          when:
+            - (s1_package_local_src | default('')) | length > 0
+            - (s1_boot_remote_size.stdout | trim | int) != (s1_boot_local.stat.size | default(0))
+            - (s1_upload_method | default('rsync')) == 'rsync'
+
+        - name: Confirm the uploaded size
+          ansible.builtin.raw: stat -c %s {{ s1_package_path | quote }} 2>/dev/null || echo 0
+          register: s1_boot_after_size
+          changed_when: false
+          failed_when: (s1_boot_after_size.stdout | trim | int) != (s1_boot_local.stat.size | default(0))
+          when:
+            - (s1_package_local_src | default('')) | length > 0
+            - (s1_boot_remote_size.stdout | trim | int) != (s1_boot_local.stat.size | default(0))
+
         - name: Load the known-good checksums from the control node
           ansible.builtin.include_vars:
             file: "{{ s1_checksums_file | default(playbook_dir ~ '/checksums.yml') }}"
