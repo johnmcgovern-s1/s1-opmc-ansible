@@ -295,15 +295,14 @@ It must be `group_vars/all/vault.yml`. A file at `group_vars/vault.yml` would
 map to a host group named `vault`, which does not exist, so it would never be
 loaded - and the missing password would only surface at preflight.
 
-Password rules: at least 15 characters, no whitespace, and no `"` or `'`.
-Preflight enforces all three. The 15 comes from the vendor's shipped
-`config.yml` ("Password needs to be at least 15 characters"); the vendor
-playbook itself does not enforce it (a 12-character password installed cleanly
-on O-26.3.1), so for a throwaway lab you can lower it with
-`-e s1_admin_password_min_length=10`. Older vendor documentation gave 10
-characters with 3+ of uppercase / lowercase / digits / symbols; mixing character
-classes is still sensible, but is not checked here. The vendor playbook also
-rejects `sentinel`, `sentinel1` and `sentinel1!`.
+Password rules: at least 15 characters, at least 3 of the 4 classes (uppercase,
+lowercase, digits, symbols), no whitespace, and no `"` or `'`. Preflight enforces
+all of them. The 15 comes from the vendor's shipped `config.yml` ("Password needs
+to be at least 15 characters") and the 3 classes from the vendor's older
+documentation; the vendor playbook itself enforces neither (a 12-character
+password installed cleanly on O-26.3.1). For a throwaway lab you can lower them
+with `-e s1_admin_password_min_length=10` and `-e s1_admin_password_min_classes=1`.
+The vendor playbook also rejects `sentinel`, `sentinel1` and `sentinel1!`.
 
 ### 5. Preflight only
 

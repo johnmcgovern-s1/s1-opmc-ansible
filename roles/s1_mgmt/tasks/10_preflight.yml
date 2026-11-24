@@ -283,6 +283,22 @@
       - "' ' not in s1_admin_password"
     fail_msg: "admin_password may not contain single quotes, double quotes or whitespace."
 
+# Quotes and whitespace are refused above, so anything that is not a letter or
+# digit counts as a symbol.
+- name: Assert the admin password mixes enough character classes
+  ansible.builtin.assert:
+    that:
+      - >-
+        [s1_admin_password is search('[A-Z]'),
+         s1_admin_password is search('[a-z]'),
+         s1_admin_password is search('[0-9]'),
+         s1_admin_password is search('[^A-Za-z0-9]')]
+        | select | list | length >= (s1_admin_password_min_classes | int)
+    fail_msg: >-
+      s1_admin_password must use at least {{ s1_admin_password_min_classes }} of
+      the 4 character classes: uppercase, lowercase, digits, symbols. Lower
+      s1_admin_password_min_classes only for a throwaway lab.
+
 - name: Assert the certificate and key exist on the control node
   ansible.builtin.stat:
     path: "{{ item }}"

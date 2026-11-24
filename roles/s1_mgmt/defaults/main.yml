@@ -73,6 +73,10 @@ s1_admin_password: ""
 # password installed cleanly on O-26.3.1 - so a throwaway lab may lower this,
 # but a real console should not.
 s1_admin_password_min_length: 15
+# How many of the four classes (uppercase, lowercase, digits, symbols) the
+# password must use. 3 is the rule in the vendor's older documentation; like the
+# length, the vendor playbook does not enforce it. Set 1 to switch the check off.
+s1_admin_password_min_classes: 3
 
 # Air-gapped deployments leave all of these empty.
 s1_custom_aes_key: ""

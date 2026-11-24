@@ -6,11 +6,12 @@
 # It MUST live in group_vars/all/ — a file at group_vars/vault.yml would map to
 # a host group named "vault" and would never be loaded.
 #
-# Password rules (preflight enforces length and characters):
+# Password rules (all enforced at preflight):
 #   - at least 15 characters (vendor config.yml; s1_admin_password_min_length)
+#   - at least 3 of: uppercase, lowercase, digits, symbols
+#     (s1_admin_password_min_classes)
 #   - no whitespace, no single or double quotes
 #   - rejected outright by the vendor playbook: sentinel, sentinel1, sentinel1!
-#   - mixing uppercase, lowercase, digits and symbols is sensible but unchecked
 
 s1_admin_password: "ChangeMe-Before-Use-123!"
 
