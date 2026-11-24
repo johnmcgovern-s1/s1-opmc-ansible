@@ -314,7 +314,7 @@ could precede O-26.1.1 runs there.
 | rhel102 (2026-11) | RHEL 10.3 | ✅ O-26.3.1 | ❌ not possible | O-26.3.1, 21 containers, none down |
 | ubuntu2404 (2026-11) | Ubuntu 24.04.5 | ✅ O-26.3.1, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.32, ✅ 26.3.1.32 → .37 | O-26.3.1.37, 21 containers, none down |
 | rhel810 (2026-11) | RHEL 8.10 | ✅ O-26.3.1.37, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.37 (one hop) | O-26.3.1.37, 21 containers, none down |
-| ubuntu2204 (2026-11) | Ubuntu 22.04.5 | ✅ O-26.3.1.37 | not run | O-26.3.1.37, 21 containers, none down |
+| ubuntu2204 (2026-11) | Ubuntu 22.04.5 | ✅ O-26.3.1.37, ✅ O-26.1.1 | ✅ O-26.1.1 → O-26.3.1.37 (one hop) | O-26.3.1.37, 21 containers, none down |
 | ubuntu2604 (2026-11) | Ubuntu 26.04 | ❌ refused at preflight | - | unchanged (`changed=0`) |
 
 `rhel01` and `rhel02` ran **install-only campaigns**: every release was installed
@@ -621,7 +621,6 @@ the 9.7 / 10.2 used in earlier campaigns.
   first. When `s1_package_local_src` is set, `tasks/bootstrap_python.yml` uploads
   the package itself for this case, using rsync only (the `copy` method needs a
   target Python, so it is refused there). Validated on `rhel810`.
-- **Not yet tested on O-26.3.1:** upgrades on Ubuntu 22.04.
 
 ### RHEL 9.7 notes
 
