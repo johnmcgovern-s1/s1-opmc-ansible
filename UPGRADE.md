@@ -419,7 +419,32 @@ Help > About as O-26.3.1.37. On Ubuntu a following `install.yml` run gave
 `changed=2` (config values written to the new tree) and then `changed=0`.
 RHEL 10 is install-only for build 37 and has not been tested; RHEL 8.10 and
 Ubuntu 22.04 have not run this step (they went from 26.1.1 straight to build 37).
-That the nginx fixes in build 37 are effective was not independently verified.
+
+**The nginx security fixes in build 37** (checked November 2026). Build 37 was
+released for the nginx "nginx2root" vulnerabilities, including CVE-2026-123007
+(HTTP/2 memory corruption) and CVE-2026-123633 (HTTP/2 use-after-free with
+`proxy_pass`). The [Cloudflare write-up](https://blog.cloudflare.com/nginx2root)
+lists nginx 1.30.7 or 1.31.9 as the fixed releases. What was verified, rather
+than taken from the vendor's release note:
+
+| | Build 32 | Build 37 |
+|---|---|---|
+| `NGINX_VERSION` in the nginx image | 1.31.3 | 1.31.9 |
+| Version string inside the `nginx` binary | `nginx/1.31.3` | `nginx/1.31.9` |
+
+- **Packages:** the two tarballs differ in one member, `app_images.tar.gz` (the
+  container images). All 28 nginx-related files (configuration, templates and
+  scripts) are the same size in both, so the fix is the rebuilt nginx image and not a configuration
+  change. HTTP/2 stays enabled (`http2 on;`); the patched binary is the
+  protection.
+- **Live console:** on a RHEL 9.9 host running build 37, the nginx container was
+  started from the build 37 image, its running master process
+  (`/proc/1/exe`) reports `nginx/1.31.9`, and the effective configuration
+  contains `http2 on;` with `listen 443 ssl`.
+- **Not verified:** no exploit was run against either build. Remote code
+  execution reportedly also needs ASLR disabled or bypassed. The advisory's other
+  nginx CVEs were not individually mapped to the fix. The Linux kernel SCTP bug
+  described in the same write-up is a host OS issue, outside this package.
 
 (The RHEL 8.10 figures are the vendor playbook's recap; the RHEL 9.7 figures are
 this playbook's. Both reported `failed=0` at each layer.)

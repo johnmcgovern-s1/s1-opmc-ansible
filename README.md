@@ -611,7 +611,8 @@ the 9.7 / 10.2 used in earlier campaigns.
   step (`checksums.yml` has both packages), refuses the same or a lower build, and
   unpacks into `~/O-26.3.1.037/` so build 032's tree is not reused. Validated on
   RHEL 9.9 and Ubuntu 24.04.5 (build 32 → 37, `failed=0`, About shows
-  O-26.3.1.37 on both). See
+  O-26.3.1.37 on both). Build 37 ships nginx 1.31.9 (build 32 had 1.31.3), the
+  fixed release for the HTTP/2 CVEs; what was and was not verified is in
   [UPGRADE.md](UPGRADE.md#patch-builds-of-the-same-release).
 - **Ubuntu 26.04 is refused.** The package ships no `ubuntu_26` tooling, and the
   playbook stops at the OS gate with a clear message and `changed=0`. Confirmed
