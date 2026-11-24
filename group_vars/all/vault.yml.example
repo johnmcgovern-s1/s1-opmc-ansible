@@ -6,13 +6,13 @@
 # It MUST live in group_vars/all/ — a file at group_vars/vault.yml would map to
 # a host group named "vault" and would never be loaded.
 #
-# Password rules from the vendor docs:
-#   - at least 10 characters
-#   - 3+ of: uppercase, lowercase, digits, symbols
+# Password rules (preflight enforces length and characters):
+#   - at least 15 characters (vendor config.yml; s1_admin_password_min_length)
 #   - no whitespace, no single or double quotes
-#   - rejected outright: sentinel, sentinel1, sentinel1!
+#   - rejected outright by the vendor playbook: sentinel, sentinel1, sentinel1!
+#   - mixing uppercase, lowercase, digits and symbols is sensible but unchecked
 
-s1_admin_password: "ChangeMe123!"
+s1_admin_password: "ChangeMe-Before-Use-123!"
 
 # Air-gapped installs leave this empty.
 s1_cloud_token: ""

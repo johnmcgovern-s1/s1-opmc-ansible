@@ -268,10 +268,12 @@
     that:
       - s1_accessible_url | length > 0
       - s1_admin_email | length > 0
-      - s1_admin_password | length >= 10
+      - s1_admin_password | length >= (s1_admin_password_min_length | int)
     fail_msg: >-
-      s1_accessible_url, s1_admin_email and a 10+ character s1_admin_password
-      are required. The vendor playbook rejects empty or default passwords.
+      s1_accessible_url, s1_admin_email and an s1_admin_password of at least
+      {{ s1_admin_password_min_length }} characters are required (the vendor's
+      config.yml says 15). The vendor playbook also rejects empty or default
+      passwords. Lower s1_admin_password_min_length only for a throwaway lab.
 
 - name: Assert the admin password avoids characters the console rejects
   ansible.builtin.assert:

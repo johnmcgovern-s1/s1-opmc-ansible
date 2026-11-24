@@ -67,6 +67,12 @@ s1_admin_fullname: ""
 s1_admin_email: ""
 # Set in group_vars/all/vault.yml (ansible-vault encrypted).
 s1_admin_password: ""
+# Minimum length enforced at preflight. 15 is what the vendor's shipped
+# group_vars/all/config.yml states ("Password needs to be at least 15
+# characters"). The vendor playbook does not enforce it - a 12-character
+# password installed cleanly on O-26.3.1 - so a throwaway lab may lower this,
+# but a real console should not.
+s1_admin_password_min_length: 15
 
 # Air-gapped deployments leave all of these empty.
 s1_custom_aes_key: ""
